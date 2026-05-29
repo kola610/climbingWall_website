@@ -40,13 +40,13 @@ export const MAGNITUDE_COLORS = [
     borderB:    "rgb(170, 30, 70)",       // dark rose  — Right Hand B
   },
   {
-    border:     "rgb(0, 180, 90)",
-    background: "rgba(0, 180, 90, 0.5)",
-    borderB:    "rgb(0, 110, 55)",        // dark green — Left Foot B
-  },
-  {
     border:     "rgb(53, 162, 235)",
     background: "rgba(53, 162, 235, 0.5)",
-    borderB:    "rgb(20, 95, 170)",       // dark blue  — Right Foot B
+    borderB:    "rgb(20, 95, 170)",       // dark blue  — Left Foot B
+  },
+  {
+    border:     "rgb(0, 180, 90)",
+    background: "rgba(0, 180, 90, 0.5)",
+    borderB:    "rgb(0, 110, 55)",        // dark green — Right Foot B
   },
 ]
