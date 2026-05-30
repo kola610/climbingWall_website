@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react"
+import { useState, useRef, useCallback, useEffect, useMemo } from "react"
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -117,11 +117,23 @@ export default function SensorDashboard() {
   }
 
   // --- Step 5: derived values for presentational layer ---
-  const chartOptions = createChartOptions(
-    sensorData.displayData,
-    displaySettings.yAxisMax,
-    displaySettings.displaySampleCount,
-    displaySettings.autoScaleY,
+  // Memoised so the options object keeps a stable reference between renders
+  // that don't touch its inputs, letting memoised chart components skip
+  // unnecessary Chart.js updates.
+  const chartOptions = useMemo(
+    () =>
+      createChartOptions(
+        sensorData.displayData,
+        displaySettings.yAxisMax,
+        displaySettings.displaySampleCount,
+        displaySettings.autoScaleY,
+      ),
+    [
+      sensorData.displayData,
+      displaySettings.yAxisMax,
+      displaySettings.displaySampleCount,
+      displaySettings.autoScaleY,
+    ],
   )
 
   const handleSaveRecording = async (name: string) => {

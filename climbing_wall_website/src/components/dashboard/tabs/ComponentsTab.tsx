@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo, memo } from "react"
 import { Line } from "react-chartjs-2"
 import type { ChartOptions } from "chart.js"
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card"
@@ -16,6 +16,66 @@ interface ComponentsTabProps {
   totalSamples: number
   chartOptions: ChartOptions<"line">
 }
+
+/**
+ * Total points budget shared across all visible per-sensor charts.
+ *
+ * The Overall Force tab renders a single canvas of ~1000 points and stays
+ * smooth. This tab renders one canvas per visible sensor (×3 components each),
+ * so to keep the combined per-frame render cost in the same ballpark we split
+ * one ~1000-point budget across the visible charts. With 4 sensors visible
+ * each chart gets ~250 points; with 1 visible it keeps the full ~1000.
+ */
+const TOTAL_POINT_BUDGET = 1000
+
+/**
+ * Evenly subsamples readings down to `maxPoints` (keeping the last point) so
+ * each per-sensor chart renders a bounded number of points regardless of how
+ * many samples the display window holds. Returns the same array reference when
+ * no decimation is needed so memoised consumers can skip work.
+ */
+function decimateReadings(
+  data: SensorReading[],
+  maxPoints: number,
+): SensorReading[] {
+  if (data.length <= maxPoints) return data
+  const stride = Math.ceil(data.length / maxPoints)
+  const out: SensorReading[] = []
+  for (let i = 0; i < data.length; i += stride) out.push(data[i])
+  const last = data[data.length - 1]
+  if (out[out.length - 1] !== last) out.push(last)
+  return out
+}
+
+/**
+ * A single per-sensor X/Y/Z chart. Memoised so it only re-renders (and re-runs
+ * the smoothing + Chart.js update) when its own inputs actually change — e.g.
+ * expanding a different sensor no longer forces every other chart to rebuild.
+ */
+const SensorComponentChart = memo(function SensorComponentChart({
+  data,
+  sensorIndex,
+  options,
+  height,
+}: {
+  data: SensorReading[]
+  sensorIndex: number
+  options: ChartOptions<"line">
+  height: number
+}) {
+  const chartData = useMemo(
+    () => buildComponentChartData(data, sensorIndex),
+    [data, sensorIndex],
+  )
+  return (
+    <div
+      className="transition-[height] duration-300 ease-in-out"
+      style={{ height }}
+    >
+      <Line data={chartData} options={options} />
+    </div>
+  )
+})
 
 /**
  * Shows one chart per sensor, breaking the force into X, Y, Z directions.
@@ -47,6 +107,24 @@ export function ComponentsTab({
   }, [expandedSensor, closeOverlay])
 
   const visibleCount = visibleIndices.length
+
+  // Share one point budget across the visible charts so the combined render
+  // cost stays close to the (smooth) single-chart Overall Force tab. Recomputed
+  // only when the data or the number of visible charts changes.
+  const perChartBudget = Math.max(
+    200,
+    Math.floor(TOTAL_POINT_BUDGET / Math.max(1, visibleCount)),
+  )
+  const gridChartData = useMemo(
+    () => decimateReadings(displayData, perChartBudget),
+    [displayData, perChartBudget],
+  )
+
+  // The expanded overlay is a single chart, so it can afford the full budget.
+  const expandedChartData = useMemo(
+    () => decimateReadings(displayData, TOTAL_POINT_BUDGET),
+    [displayData],
+  )
 
   const gridCols =
     visibleCount === 1
@@ -113,15 +191,12 @@ export function ComponentsTab({
                         <Maximize2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
-                    <div
-                      className="transition-[height] duration-300 ease-in-out"
-                      style={{ height: chartHeight }}
-                    >
-                      <Line
-                        data={buildComponentChartData(displayData, index)}
-                        options={chartOptions}
-                      />
-                    </div>
+                    <SensorComponentChart
+                      data={gridChartData}
+                      sensorIndex={index}
+                      options={chartOptions}
+                      height={chartHeight}
+                    />
                   </div>
                 )
               })}
@@ -174,7 +249,7 @@ export function ComponentsTab({
             </div>
             <div className="h-[60vh] max-h-[500px]">
               <Line
-                data={buildComponentChartData(displayData, expandedSensor)}
+                data={buildComponentChartData(expandedChartData, expandedSensor)}
                 options={chartOptions}
               />
             </div>
