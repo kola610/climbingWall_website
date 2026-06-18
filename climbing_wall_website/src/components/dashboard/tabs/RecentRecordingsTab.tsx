@@ -155,6 +155,9 @@ export function RecentRecordingsTab({
   }
 
   // Chart options shared between single-view and comparison charts.
+  // The norm charts plot Euclidean magnitudes (always ≥ 0), so anchoring the
+  // y-axis at 0 is desirable; the top is left unset so Chart.js auto-scales it
+  // to the largest value.
   const chartOptions = useMemo((): ChartOptions<"line"> => ({
     responsive: true,
     maintainAspectRatio: false,
@@ -183,6 +186,22 @@ export function RecentRecordingsTab({
     },
     interaction: { mode: "nearest", axis: "x", intersect: false },
   }), [])
+
+  // Options for the per-sensor X/Y/Z direction charts. These plot raw force
+  // components, which can be negative, so the y-axis must NOT be floored at 0 —
+  // otherwise negative excursions get clipped and become invisible. Leaving both
+  // min and max unset lets Chart.js auto-scale to fit the full range in either
+  // direction.
+  const componentChartOptions = useMemo((): ChartOptions<"line"> => ({
+    ...chartOptions,
+    scales: {
+      ...chartOptions.scales,
+      y: {
+        title: { display: true, text: "Force (N)" },
+        ticks: { maxTicksLimit: 6 },
+      },
+    },
+  }), [chartOptions])
 
   const selectedMeta = recordings.find((r) => r.id === selectedId)
 
@@ -412,7 +431,7 @@ export function RecentRecordingsTab({
                         <div className="h-[220px]">
                           <Line
                             data={buildComponentChartData(selectedData, sensorIndex)}
-                            options={chartOptions}
+                            options={componentChartOptions}
                           />
                         </div>
                       </div>
