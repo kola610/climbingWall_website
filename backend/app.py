@@ -4,11 +4,25 @@ import csv
 import json
 import re
 
+import numpy as np
+from scipy.integrate import cumulative_trapezoid
+
 from flask import Flask, jsonify, request
 
 app = Flask(__name__)
 SAVE_DIR = Path(__file__).resolve().parent / "saved_recordings"
 SAVE_DIR.mkdir(parents=True, exist_ok=True)
+
+# Calibration is stored inside the frontend source tree so that serialParser.ts
+# imports it as its committed default; the calibration wizard POSTs updates here.
+CALIB_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "climbing_wall_website"
+    / "src"
+    / "config"
+    / "calibration_settings.json"
+)
+CALIB_KEYS = ("axisSigns", "groundOffsets", "axisScales")
 
 CSV_HEADERS = [
     "Timestamp",
@@ -95,6 +109,143 @@ def _read_or_generate_meta(csv_path: Path) -> dict:
     }
 
 
+def calculate_jump_height_with_angle(foot_forces, hand_forces, mass, sampling_rate, wall_angle_degrees):
+    """
+    Calculate jump height from wall-oriented force data with angle correction.
+
+    Ported (Method A) from the Pi's demonstration.py so the proven numpy/scipy
+    algorithm now runs computer-side on the calibrated Newton force buffer.
+
+    foot_forces / hand_forces: numpy arrays of shape (n_samples, 3), columns
+        [Fx, Fy, Fz] in wall coordinates (Newtons). foot = both feet summed,
+        hand = both hands summed.
+    mass: climber mass in kg
+    sampling_rate: Hz
+    wall_angle_degrees: wall angle from vertical (positive = overhanging)
+
+    Returns jump height in meters (perpendicular to the wall).
+
+    Deviation from the original: the "no zero crossing found" branch used to
+    `return true_takeoff_index` (an integer sample index, not a height) — a bug.
+    Here both branches fall through to the same position-based height calculation.
+    """
+    dt = 1.0 / sampling_rate
+    time_axis = np.arange(len(foot_forces)) / sampling_rate
+    wall_angle = np.radians(wall_angle_degrees)
+
+    # Transform forces from wall coordinates to global coordinates.
+    foot_global_z = foot_forces[:, 2] * np.cos(wall_angle) + foot_forces[:, 1] * np.sin(wall_angle)
+    hand_global_z = hand_forces[:, 2] * np.cos(wall_angle) + hand_forces[:, 1] * np.sin(wall_angle)
+
+    total_force_z = foot_global_z + hand_global_z
+
+    # Net force / acceleration (downward-Z convention: weight positive in +Z).
+    still_end = max(1, int(1 * sampling_rate))  # first 1 second
+    mean_weight_force = np.mean(total_force_z[: still_end * 3])
+    net_force_z = total_force_z - mean_weight_force
+    accel_z = net_force_z / mass
+
+    # Baseline correction.
+    accel_baseline = np.mean(accel_z[:still_end])
+    accel_z = accel_z - accel_baseline
+
+    i_max_accel = int(np.argmax(foot_global_z))
+    window_start = max(0, i_max_accel - 200)
+
+    # Detect the first significant upward slope in foot force before the peak.
+    slope = np.zeros(len(accel_z))
+    for i in range(window_start, i_max_accel):
+        if i + 1 < len(accel_z):
+            slope[i] = foot_global_z[i] - foot_global_z[i - 1]
+
+    slope_window = slope[window_start:i_max_accel]
+    i_max_change_local = 0
+    for i in range(len(slope_window)):
+        if slope_window[i] > 10:
+            i_max_change_local = i
+            break
+    i_max_change = window_start + i_max_change_local
+
+    accel_z[:i_max_change] = 0  # zero everything before the true start
+
+    # Double integration: acceleration -> velocity -> position, baseline-corrected.
+    velocity_z = cumulative_trapezoid(accel_z, dx=dt, initial=0)
+    velocity_z = velocity_z - np.mean(velocity_z[:still_end])
+    position_z = cumulative_trapezoid(velocity_z, dx=dt, initial=0)
+    position_z = position_z - np.mean(position_z[:still_end])
+
+    # Determine the true takeoff index (first time total force drops to ~0 after
+    # the acceleration peak).
+    zero_crossings = np.where(np.diff(np.sign(total_force_z)))[0]
+    after = zero_crossings[zero_crossings > i_max_accel]
+    if len(after) == 0:
+        # Fallback: first time the force falls below a small threshold.
+        threshold = 20
+        forces_z = total_force_z[i_max_accel:]
+        below = np.where(forces_z < threshold)[0]
+        true_takeoff_index = (below[0] + i_max_accel) if len(below) else i_max_accel
+    else:
+        true_takeoff_index = int(after[0])
+
+    true_takeoff_index = int(np.clip(true_takeoff_index, 0, len(position_z) - 1))
+
+    # Position-based jump height, wall-angle corrected to wall-perpendicular.
+    peak_height = float(np.max(position_z) - position_z[true_takeoff_index])
+    jump_height = peak_height * np.cos(wall_angle)
+    return float(jump_height)
+
+
+@app.route("/api/jump", methods=["POST", "OPTIONS"])
+def compute_jump():
+    """Compute jump height from a window of calibrated hand/foot force samples.
+
+    Expects JSON: {
+      "hand": [[Fx,Fy,Fz], ...],   # both hands summed, Newtons, wall coords
+      "foot": [[Fx,Fy,Fz], ...],   # both feet summed
+      "mass": <kg>,
+      "wallAngle": <deg>,          # optional, default 0
+      "samplingRate": <Hz>         # optional, default 100
+    }
+    Returns {"jumpHeightM": <m>, "jumpHeightCm": <int cm>}.
+    """
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    payload = request.get_json(silent=True) or {}
+    hand = payload.get("hand")
+    foot = payload.get("foot")
+    mass = payload.get("mass")
+    wall_angle = payload.get("wallAngle", 0)
+    sampling_rate = payload.get("samplingRate", 100)
+
+    if not isinstance(hand, list) or not isinstance(foot, list):
+        return jsonify({"error": "'hand' and 'foot' must be arrays of [Fx,Fy,Fz]."}), 400
+    if len(hand) != len(foot) or len(foot) < 10:
+        return jsonify({"error": "'hand' and 'foot' must be equal-length arrays of >= 10 samples."}), 400
+    if not isinstance(mass, (int, float)) or mass <= 0:
+        return jsonify({"error": "'mass' must be a positive number (kg)."}), 400
+
+    try:
+        foot_arr = np.asarray(foot, dtype=float)
+        hand_arr = np.asarray(hand, dtype=float)
+        if foot_arr.ndim != 2 or foot_arr.shape[1] != 3 or hand_arr.shape != foot_arr.shape:
+            return jsonify({"error": "'hand'/'foot' samples must each be [Fx, Fy, Fz]."}), 400
+
+        height_m = calculate_jump_height_with_angle(
+            foot_arr, hand_arr, float(mass), float(sampling_rate), float(wall_angle)
+        )
+    except Exception as err:  # never 500 on a well-shaped request
+        return jsonify({"error": f"Jump computation failed: {err}"}), 400
+
+    if not np.isfinite(height_m):
+        return jsonify({"error": "Jump computation produced a non-finite result."}), 400
+
+    return jsonify({
+        "jumpHeightM": round(height_m, 4),
+        "jumpHeightCm": int(round(height_m * 100)),
+    }), 200
+
+
 @app.route("/")
 def home():
     return "Hallo, Flask läuft!"
@@ -162,6 +313,45 @@ def save_recording():
         "filename": filename,
         "path": str(filepath),
     }), 201
+
+
+@app.route("/api/calibration", methods=["GET"])
+def get_calibration():
+    """Return the committed calibration settings, or 404 if not present."""
+    if not CALIB_PATH.exists():
+        return jsonify({"error": "Calibration settings not found."}), 404
+    try:
+        with CALIB_PATH.open(encoding="utf-8") as f:
+            return jsonify(json.load(f))
+    except Exception as err:
+        return jsonify({"error": f"Could not read calibration: {err}"}), 500
+
+
+@app.route("/api/calibration", methods=["POST", "OPTIONS"])
+def save_calibration():
+    """Overwrite the calibration settings file with a validated config."""
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    payload = request.get_json(silent=True) or {}
+    for key in CALIB_KEYS:
+        arr = payload.get(key)
+        if (
+            not isinstance(arr, list)
+            or len(arr) != 12
+            or not all(isinstance(n, (int, float)) for n in arr)
+        ):
+            return jsonify({"error": f"'{key}' must be an array of 12 numbers."}), 400
+
+    config = {key: payload[key] for key in CALIB_KEYS}
+    try:
+        CALIB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with CALIB_PATH.open("w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2)
+    except Exception as err:
+        return jsonify({"error": f"Could not save calibration: {err}"}), 500
+
+    return jsonify({"message": "Calibration saved.", "path": str(CALIB_PATH)}), 200
 
 
 @app.route("/api/recordings", methods=["GET"])

@@ -1,27 +1,33 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { usePersistedState } from "./usePersistedState"
+import type { SensorReading } from "../types/sensor"
+import { computeJumpHeight } from "../utils/jumpApi"
 
 interface JumpTestDeps {
   isConnected: boolean
-  sendCommand: (cmd: string) => Promise<void>
   mockModeActive: React.MutableRefObject<boolean>
   setError: (err: string | null) => void
+  /** Live buffer of calibrated (Newton) sensor readings, in GUI-slot order. */
+  allSensorDataRef: React.MutableRefObject<SensorReading[]>
 }
 
 /**
  * Manages the complete jump-test feature including:
  *  - Jump test state machine (idle → waiting → completed).
  *  - Countdown timer during a live test.
- *  - Body-weight and wall-angle configuration (input, validation, sending).
- *  - `handleJumpMessage` — called by the serial line dispatcher when the
- *    device reports a "jump: N" result.
+ *  - Body-weight and wall-angle configuration (input + validation).
+ *  - Jump-height computation (Method A): on finish, the jump-window slice of the
+ *    calibrated force buffer is POSTed to the backend, which runs the
+ *    numpy/scipy algorithm and returns the height. Nothing is sent to the Pi.
  */
 export function useJumpTest({
   isConnected,
-  sendCommand,
   mockModeActive,
   setError,
+  allSensorDataRef,
 }: JumpTestDeps) {
+  // Index into allSensorDataRef marking the start of the current jump window.
+  const jumpStartIndexRef = useRef(0)
   // Transient test state — not persisted (a running test cannot survive a reload)
   const [jumpTestActive, setJumpTestActive] = useState(false)
   const [jumpTestStatus, setJumpTestStatus] = useState<"idle" | "waiting" | "completed">("idle")
@@ -46,16 +52,14 @@ export function useJumpTest({
     return () => clearTimeout(id)
   }, [countdown, timerActive])
 
-  /** Called by the serial dispatcher when a "jump: N" line is received. */
-  const handleJumpMessage = useCallback((value: number) => {
-    setJumpNumber(value)
-    setJumpTestStatus("completed")
-    setJumpTestActive(false)
-  }, [])
-
   const startJumpTest = useCallback(async () => {
     if (!isConnected && !mockModeActive.current) {
       setError("Connect to a device first")
+      return
+    }
+    // Real jump-height computation needs the climber's mass; mock mode does not.
+    if (isConnected && bodyWeightSubmitted === null) {
+      setError("Enter and submit a body weight before starting a jump test")
       return
     }
     setJumpNumber(null)
@@ -63,19 +67,11 @@ export function useJumpTest({
     setJumpTestActive(true)
     setCountdown(10)
     setTimerActive(true)
-
-    if (isConnected) {
-      try {
-        await sendCommand("start_jump\n")
-      } catch (err) {
-        console.error("Error starting jump test:", err)
-        setError("Failed to start jump test. Please try again.")
-        setJumpTestStatus("idle")
-        setJumpTestActive(false)
-      }
-    }
-    // In mock mode the user clicks "Finish Jump" to trigger the mock result.
-  }, [isConnected, sendCommand, mockModeActive, setError])
+    // Mark where this jump window begins in the live force buffer. Real serial
+    // data is always buffered while connected, so the window is [start, finish].
+    jumpStartIndexRef.current = allSensorDataRef.current.length
+    // In mock mode the user clicks "Finish Jump" to trigger a mock result.
+  }, [isConnected, mockModeActive, setError, bodyWeightSubmitted, allSensorDataRef])
 
   const finishJumpTest = useCallback(async () => {
     if (!jumpTestActive) {
@@ -84,11 +80,24 @@ export function useJumpTest({
     }
 
     if (isConnected) {
+      const window = allSensorDataRef.current.slice(jumpStartIndexRef.current)
+      const mass = bodyWeightSubmitted ?? 0
+      const angle = wallAngleSubmitted ?? 0
       try {
-        await sendCommand("stop_jump\n")
+        const result = await computeJumpHeight(window, mass, angle)
+        setJumpNumber(result.jumpHeightCm)
+        setJumpTestStatus("completed")
+        setJumpTestActive(false)
+        setError(null)
       } catch (err) {
-        console.error("Error finishing jump test:", err)
-        setError("Failed to finish jump test. Please try again.")
+        console.error("Error computing jump height:", err)
+        setError(
+          err instanceof Error
+            ? `Failed to compute jump height: ${err.message}`
+            : "Failed to compute jump height. Please try again.",
+        )
+        setJumpTestStatus("idle")
+        setJumpTestActive(false)
       }
     } else if (mockModeActive.current) {
       setTimeout(() => {
@@ -98,9 +107,19 @@ export function useJumpTest({
         setJumpTestActive(false)
       }, 500)
     }
-  }, [jumpTestActive, isConnected, sendCommand, mockModeActive, setError])
+  }, [
+    jumpTestActive,
+    isConnected,
+    mockModeActive,
+    setError,
+    allSensorDataRef,
+    bodyWeightSubmitted,
+    wallAngleSubmitted,
+  ])
 
-  const sendBodyWeight = useCallback(async () => {
+  // Body weight and wall angle are no longer sent to the Pi (Method A) — they
+  // are kept as frontend state and passed to the backend at jump-finish time.
+  const sendBodyWeight = useCallback(() => {
     if (!bodyWeight || isNaN(Number(bodyWeight))) {
       setError("Please enter a valid body weight")
       return
@@ -110,24 +129,11 @@ export function useJumpTest({
       setError("Please enter a valid body weight between 1 and 500 kg")
       return
     }
-    if (!isConnected && !mockModeActive.current) {
-      setError("Connect to a device first")
-      return
-    }
-    if (isConnected) {
-      try {
-        await sendCommand(`mass:${weight}\n`)
-      } catch (err) {
-        console.error("Error sending body weight:", err)
-        setError("Failed to send body weight. Please try again.")
-        return
-      }
-    }
     setBodyWeightSubmitted(weight)
     setError(null)
-  }, [bodyWeight, isConnected, sendCommand, mockModeActive, setError])
+  }, [bodyWeight, setBodyWeightSubmitted, setError])
 
-  const sendWallAngle = useCallback(async () => {
+  const sendWallAngle = useCallback(() => {
     if (!wallAngle || isNaN(Number(wallAngle))) {
       setError("Please enter a valid wall angle")
       return
@@ -137,22 +143,9 @@ export function useJumpTest({
       setError("Please enter a valid wall angle between 0 and 90 degrees")
       return
     }
-    if (!isConnected && !mockModeActive.current) {
-      setError("Connect to a device first")
-      return
-    }
-    if (isConnected) {
-      try {
-        await sendCommand(`angle:${angle}\n`)
-      } catch (err) {
-        console.error("Error sending wall angle:", err)
-        setError("Failed to send wall angle. Please try again.")
-        return
-      }
-    }
     setWallAngleSubmitted(angle)
     setError(null)
-  }, [wallAngle, isConnected, sendCommand, mockModeActive, setError])
+  }, [wallAngle, setWallAngleSubmitted, setError])
 
   const reset = useCallback(() => {
     setJumpTestActive(false)
@@ -171,7 +164,6 @@ export function useJumpTest({
     wallAngleSubmitted,
     setBodyWeight,
     setWallAngle,
-    handleJumpMessage,
     startJumpTest,
     finishJumpTest,
     sendBodyWeight,

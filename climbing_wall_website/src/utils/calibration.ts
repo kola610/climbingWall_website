@@ -1,0 +1,225 @@
+import defaultSettings from "../config/calibration_settings.json"
+
+/**
+ * Runtime calibration store.
+ *
+ * The transform in `serialParser.ts` needs per-axis sign / offset / scale values.
+ * Historically these were hardcoded `as const` arrays that required a source edit
+ * and rebuild to change. This module makes them a live, persistable store so the
+ * in-app calibration wizard can update them at runtime.
+ *
+ * Sources of truth, in priority order at startup (see `loadPersistedCalibration`):
+ *   1. backend file  (GET /api/calibration → src/config/calibration_settings.json)
+ *   2. localStorage  (works in expo / offline mode with no backend)
+ *   3. the committed JSON import below (the build-time default)
+ *
+ * All three arrays are length-12, in GUI-slot order
+ * [Left Hand, Right Hand, Left Foot, Right Foot] × (X, Y, Z).
+ */
+export interface CalibrationConfig {
+  axisSigns: number[]
+  groundOffsets: number[]
+  axisScales: number[]
+}
+
+/** Standard gravity — converts a calibration mass (kg) to a force (N). */
+export const GRAVITY = 9.80665
+
+export const CALIBRATION_STORAGE_KEY = "calibration"
+
+/**
+ * Force coordinate convention enforced across all four boards:
+ *   +X → up (toward the top of the wall)
+ *   +Y → to the right
+ *   +Z → along the wall normal, out of the wall (toward the climber)
+ *
+ * `CALIBRATION_FORCE_DIRECTION[i]` is the sign of the convention-axis component
+ * of the load applied during the standard calibration procedure for channel `i`
+ * (GUI-slot order: [Left Hand, Right Hand, Left Foot, Right Foot] × (X, Y, Z)).
+ *
+ * Since the single-hang method (computeHangCalibration), X and Z are NO LONGER
+ * calibrated from this array: a hang loads the in-plane (X) axis by −cosθ and the
+ * normal (Z) axis by +sinθ (derived from the wall decline θ), so those directions
+ * come from θ, not from here. This array is now used only for the Y axis:
+ *   - Y: pull right → +Y on the right-side boards; the LEFT-side boards (Left
+ *        Hand, Left Foot) are pulled to the LEFT → −Y, so the fitted scale flips
+ *        and a rightward force reads +Y uniformly.
+ * The X (−1) / Z (+1) entries are kept only to document the convention.
+ */
+export const CALIBRATION_FORCE_DIRECTION: number[] = [
+  // Left Hand:   X(hung load = down → −1),  Y(pulled left → −1),  Z
+  -1, -1, 1,
+  // Right Hand:  X(hung load = down → −1),  Y,  Z
+  -1, 1, 1,
+  // Left Foot:   X(hung load = down → −1),  Y(pulled left → −1),  Z
+  -1, -1, 1,
+  // Right Foot:  X(hung load = down → −1),  Y,  Z
+  -1, 1, 1,
+]
+
+function clone(cfg: CalibrationConfig): CalibrationConfig {
+  return {
+    axisSigns: [...cfg.axisSigns],
+    groundOffsets: [...cfg.groundOffsets],
+    axisScales: [...cfg.axisScales],
+  }
+}
+
+/** Built-in defaults, deep-cloned so the imported JSON object is never mutated. */
+export function defaultCalibration(): CalibrationConfig {
+  return clone(defaultSettings as CalibrationConfig)
+}
+
+// Module-level active config. Read by `serialParser.ts` at call time.
+let active: CalibrationConfig = defaultCalibration()
+
+export function getCalibration(): CalibrationConfig {
+  return active
+}
+
+export function setCalibration(cfg: CalibrationConfig): void {
+  active = clone(cfg)
+}
+
+/**
+ * Derive an axis's ground offset and scale from a 0/10/20-kg (etc.) sweep.
+ *
+ * `rawsPerStep[k]` is the averaged signed-raw reading (post-sign, pre-offset,
+ * pre-scale) captured with `weightsKg[k]` applied. The offset is simply the
+ * zero-load reading; the scale is the least-squares slope of force vs.
+ * (raw − offset) constrained through the origin, giving N per raw unit so that
+ * `(raw − offset) * scale ≈ force_N`.
+ */
+export function computeAxisCalibration(
+  rawsPerStep: number[],
+  weightsKg: number[],
+  forceDirection: number = 1,
+): { offset: number; scale: number } {
+  const offset = rawsPerStep[0] ?? 0
+  let num = 0
+  let den = 0
+  for (let k = 0; k < rawsPerStep.length; k++) {
+    const x = rawsPerStep[k] - offset
+    // `forceDirection` is the sign of the applied load in convention coordinates
+    // (see CALIBRATION_FORCE_DIRECTION): −1 when the weight is pulled in the
+    // −axis direction (e.g. Y on a left board), so the fitted scale flips and a
+    // +convention force reads positive.
+    const f = forceDirection * (weightsKg[k] ?? 0) * GRAVITY
+    num += x * f
+    den += x * x
+  }
+  // Near-zero denominator → the sensor channel didn't respond at all (raws
+  // identical across weights); avoid div-by-0 and leave scale at 1 so the caller
+  // can flag it. The threshold must sit far below a legitimate Σx²: raw voltage
+  // ratios are ~1e-5, so a real calibration has Σx² ~1e-10 (and the weak normal
+  // axis in a hang is smaller still), hence 1e-20 rather than 1e-9.
+  const scale = Math.abs(den) < 1e-20 ? 1 : num / den
+  return { offset, scale }
+}
+
+/**
+ * Single-hang calibration of the X (in-plane) and Z (normal) axes of one board.
+ *
+ * On a wall declined by θ, hanging a known weight W (a pure vertical, gravity
+ * load) loads the board's two axes at once: the up-slope (in-plane) axis sees
+ * W·cosθ and the normal (out-of-wall) axis sees W·sinθ. So a single 0/10/20-kg
+ * hang sweep calibrates BOTH axes — no separate horizontal pull-out for Z.
+ *
+ * The applied-load directions in convention coordinates (folded into the fit via
+ * `forceDirection`, see CALIBRATION_FORCE_DIRECTION):
+ *   in-plane (X): −cosθ  → a hung weight is down-slope, so after the wallGeometry
+ *                          rotation it reads −X (a climber hanging is negative).
+ *   normal   (Z): +sinθ  → makes a pure vertical hang rotate to X = −W, Z = 0.
+ * After the rotation by the same θ (wallGeometry.applyWallDecline) the result is
+ * world-frame X (vertical) and Z (horizontal).
+ *
+ * Requires a tilted wall: at θ = 0 the hang puts no load on the normal axis
+ * (sinθ = 0), so Z cannot be calibrated this way — the caller should guard.
+ *
+ * `rawsXPerStep` / `rawsZPerStep` are the averaged signed-raw readings of the
+ * board's X and Z channels at each weight in `weightsKg` (step 0 = 0 kg = offset).
+ */
+export function computeHangCalibration(
+  rawsXPerStep: number[],
+  rawsZPerStep: number[],
+  weightsKg: number[],
+  declineDeg: number,
+): { x: { offset: number; scale: number }; z: { offset: number; scale: number } } {
+  const t = (declineDeg * Math.PI) / 180
+  const x = computeAxisCalibration(rawsXPerStep, weightsKg, -Math.cos(t))
+  const z = computeAxisCalibration(rawsZPerStep, weightsKg, Math.sin(t))
+  return { x, z }
+}
+
+const BACKEND_BASE_URL = import.meta.env.VITE_BACKEND_URL ?? ""
+
+function isValidConfig(value: unknown): value is CalibrationConfig {
+  if (typeof value !== "object" || value === null) return false
+  const cfg = value as Record<string, unknown>
+  return (["axisSigns", "groundOffsets", "axisScales"] as const).every(
+    (key) =>
+      Array.isArray(cfg[key]) &&
+      (cfg[key] as unknown[]).length === 12 &&
+      (cfg[key] as unknown[]).every((n) => typeof n === "number" && isFinite(n)),
+  )
+}
+
+/**
+ * Load the persisted calibration into the active store on startup.
+ * Tries the backend file first (authoritative, kept in sync on save), then
+ * localStorage, then leaves the built-in defaults in place. Always resolves.
+ */
+export async function loadPersistedCalibration(): Promise<CalibrationConfig> {
+  try {
+    const res = await fetch(`${BACKEND_BASE_URL}/api/calibration`)
+    if (res.ok) {
+      const data = await res.json()
+      if (isValidConfig(data)) {
+        setCalibration(data)
+        return getCalibration()
+      }
+    }
+  } catch {
+    // Backend unreachable (expo / offline) — fall through to localStorage.
+  }
+
+  try {
+    const stored = localStorage.getItem(CALIBRATION_STORAGE_KEY)
+    if (stored) {
+      const data = JSON.parse(stored)
+      if (isValidConfig(data)) {
+        setCalibration(data)
+        return getCalibration()
+      }
+    }
+  } catch {
+    // Corrupt / unavailable storage — keep defaults.
+  }
+
+  return getCalibration()
+}
+
+/**
+ * Persist a calibration everywhere: live store, localStorage (for offline
+ * reloads), and the backend JSON file (best-effort, so a missing backend never
+ * blocks calibration in expo mode).
+ */
+export async function persistCalibration(cfg: CalibrationConfig): Promise<void> {
+  setCalibration(cfg)
+
+  try {
+    localStorage.setItem(CALIBRATION_STORAGE_KEY, JSON.stringify(cfg))
+  } catch {
+    // Quota / unavailable — the in-memory store still has the value.
+  }
+
+  try {
+    await fetch(`${BACKEND_BASE_URL}/api/calibration`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cfg),
+    })
+  } catch {
+    // Backend unreachable — fine, localStorage + live store still updated.
+  }
+}

@@ -18,6 +18,7 @@ import { useSensorData } from "../hooks/useSensorData"
 import { useJumpTest } from "../hooks/useJumpTest"
 import { useDisplaySettings } from "../hooks/useDisplaySettings"
 import { useComparisonData } from "../hooks/useComparisonData"
+import { useCalibration } from "../hooks/useCalibration"
 
 import { parseSerialLine } from "../utils/serialParser"
 import { exportToCsv } from "../utils/csvExport"
@@ -25,6 +26,7 @@ import { createChartOptions } from "../utils/chartOptions"
 import { saveRecordingToBackend } from "../utils/recordingApi"
 
 import { DashboardToolbar } from "./dashboard/DashboardToolbar"
+import { CalibrationModal } from "./dashboard/CalibrationModal"
 import { ConnectionStatus } from "./dashboard/ConnectionStatus"
 import { ForceMagnitudesTab } from "./dashboard/tabs/ForceMagnitudesTab"
 import { ComponentsTab } from "./dashboard/tabs/ComponentsTab"
@@ -65,17 +67,24 @@ export default function SensorDashboard() {
   const [compareMode, setCompareMode] = useState(false)
   const comparison = useComparisonData()
 
+  const [showCalibration, setShowCalibration] = useState(false)
+  const calibration = useCalibration()
+
   // --- Step 1: stable dispatcher refs ---
   // These refs break the circular dependency between useSerialPort (which needs
   // to call handlers) and useSensorData / useJumpTest (which need the port).
   // They are updated every render so hook implementations never go stale.
   const addSensorReadingRef = useRef<((values: number[]) => void) | null>(null)
-  const handleJumpMessageRef = useRef<((value: number) => void) | null>(null)
+  const calibrationSinkRef = useRef<((signedRaw: number[]) => void) | null>(null)
 
   const handleSerialLine = useCallback((line: string) => {
     const msg = parseSerialLine(line)
-    if (msg.type === "sensor") addSensorReadingRef.current?.(msg.values)
-    else if (msg.type === "jump") handleJumpMessageRef.current?.(msg.value)
+    if (msg.type === "sensor") {
+      addSensorReadingRef.current?.(msg.values)
+      calibrationSinkRef.current?.(msg.signedRaw)
+    }
+    // Jump height is no longer reported over serial — it is computed from the
+    // calibrated buffer on jump-finish (see useJumpTest / backend /api/jump).
   }, []) // intentionally stable — reads from refs at call time
 
   // --- Step 2: domain hooks ---
@@ -96,14 +105,14 @@ export default function SensorDashboard() {
 
   const jumpTest = useJumpTest({
     isConnected: serial.connected,
-    sendCommand: serial.sendCommand,
     mockModeActive: serial.mockModeActive,
     setError: serial.setError,
+    allSensorDataRef: sensorData.allSensorDataRef,
   })
 
   // --- Step 3: keep dispatcher refs current ---
   addSensorReadingRef.current = sensorData.addSensorReading
-  handleJumpMessageRef.current = jumpTest.handleJumpMessage
+  calibrationSinkRef.current = calibration.feedSample
 
   // --- Step 4: orchestrated actions ---
   const handleConnectToggle = async () => {
@@ -196,27 +205,35 @@ export default function SensorDashboard() {
         isCollecting={sensorData.isCollecting}
         hasPausedData={!sensorData.isCollecting && sensorData.totalSamples > 0}
         totalSamples={sensorData.totalSamples}
-        canCalibrate={serial.connected || serial.mockModeActive.current}
+        onOpenCalibration={() => setShowCalibration(true)}
         canExport={sensorData.totalSamples > 0}
         canSaveRecording={sensorData.totalSamples > 0}
         displaySampleCount={displaySettings.displaySampleCount}
         autoScaleY={displaySettings.autoScaleY}
         yAxisMax={displaySettings.yAxisMax}
+        wallDeclineDeg={displaySettings.wallDeclineDeg}
         onConnectToggle={handleConnectToggle}
         onCollectToggle={sensorData.toggleDataCollection}
         onStartFresh={sensorData.startFreshCollection}
-        onCalibrate={sensorData.calibrateDevice}
         onExportCsv={() => exportToCsv(sensorData.allSensorDataRef.current)}
         onSaveRecording={handleSaveRecording}
         onSampleCountChange={displaySettings.handleSampleCountChange}
         onAutoScaleChange={displaySettings.setAutoScaleY}
         onYAxisMaxChange={(values) => displaySettings.setYAxisMax(values[0])}
+        onWallDeclineChange={displaySettings.handleWallDeclineChange}
       />
 
       <ConnectionStatus
         connected={serial.connected}
         mockModeActive={serial.mockModeActive.current}
         isCollecting={sensorData.isCollecting}
+      />
+
+      <CalibrationModal
+        open={showCalibration}
+        onClose={() => setShowCalibration(false)}
+        connected={serial.connected}
+        calibration={calibration}
       />
 
       <Tabs defaultValue="norms" value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -250,6 +267,7 @@ export default function SensorDashboard() {
             displaySampleCount={displaySettings.displaySampleCount}
             totalSamples={sensorData.totalSamples}
             chartOptions={chartOptions}
+            wallDeclineDeg={displaySettings.wallDeclineDeg}
           />
         </TabsContent>
 

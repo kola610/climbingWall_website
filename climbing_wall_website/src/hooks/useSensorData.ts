@@ -149,9 +149,18 @@ export function useSensorData(
         stopMockData()
         return
       }
-      const mockValues = Array.from({ length: 12 }, () =>
-        Math.floor(Math.random() * 1023),
-      )
+      // Method A: the real pipeline turns tiny raw voltage ratios (~1e-6) into
+      // Newtons via a per-channel scale (~1e6). Mock mode bypasses the serial
+      // parser, so we generate raw-voltage-ratio-scale values and apply a
+      // representative scale here to keep charts in a sensible Newton range
+      // (gentle per-channel sine + noise so the lines look alive).
+      const MOCK_SCALE = 3_000_000 // representative N per raw-voltage-ratio unit
+      const t = Date.now() / 1000
+      const mockValues = Array.from({ length: 12 }, (_, i) => {
+        const rawRatio =
+          (Math.sin(t * 1.5 + i) * 0.5 + (Math.random() - 0.5)) * 2e-5
+        return rawRatio * MOCK_SCALE
+      })
       addSensorReading(mockValues)
     }, 10)
   }, [addSensorReading, stopMockData])

@@ -6,6 +6,14 @@ import path from "path"
 export default defineConfig({
   plugins: [react()],
   server: {
+    // The backend persists calibration into src/config/calibration_settings.json,
+    // which is imported by calibration.ts. Without this, every "Save axis" write
+    // makes Vite full-page-reload, which drops the Web Serial connection. The live
+    // calibration store is updated in-memory on save (and re-read via
+    // GET /api/calibration on the next load), so ignoring the file here is safe.
+    watch: {
+      ignored: ["**/src/config/calibration_settings.json"],
+    },
     proxy: {
       "/api": {
         target: "http://localhost:5001",

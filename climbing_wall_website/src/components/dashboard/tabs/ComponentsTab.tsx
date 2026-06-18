@@ -15,6 +15,7 @@ interface ComponentsTabProps {
   displaySampleCount: number | "all"
   totalSamples: number
   chartOptions: ChartOptions<"line">
+  wallDeclineDeg: number
 }
 
 /**
@@ -88,6 +89,7 @@ export function ComponentsTab({
   displaySampleCount,
   totalSamples,
   chartOptions,
+  wallDeclineDeg,
 }: ComponentsTabProps) {
   const [expandedSensor, setExpandedSensor] = useState<number | null>(null)
   const { activeSensors, toggleSensor, visibleIndices } = useSensorToggle()
@@ -152,6 +154,14 @@ export function ComponentsTab({
               <br />
               {displayData.length} of {totalSamples} points
             </div>
+          </div>
+
+          {/* Prominent decline assumption, next to the directional X/Z readout. */}
+          <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
+            <span className="font-semibold">X</span> (vertical) and{" "}
+            <span className="font-semibold">Z</span> (out of wall) assume the wall is
+            declined <span className="font-semibold">{wallDeclineDeg}°</span> from
+            vertical. Set this in Chart Settings → Wall decline angle. Y is unaffected.
           </div>
 
           {displayData.length > 0 && (

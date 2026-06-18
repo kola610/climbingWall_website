@@ -20,6 +20,11 @@ export function useSerialPort(onLine: (line: string) => void) {
 
   const portRef = useRef<SerialPort | null>(null)
   const readerActiveRef = useRef(false)
+  // The active reader and the read-loop promise. Tracked so disconnect() can
+  // cancel the in-flight read and await the loop's teardown, releasing the
+  // stream lock before close() — otherwise close() rejects on a locked stream.
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null)
+  const readLoopRef = useRef<Promise<void> | null>(null)
   const mockModeActiveRef = useRef(false)
   // Keep the callback up-to-date without making it a dependency of anything.
   const onLineRef = useRef(onLine)
@@ -30,6 +35,7 @@ export function useSerialPort(onLine: (line: string) => void) {
     let buffer = ""
     try {
       const reader = serialPort.readable.getReader()
+      readerRef.current = reader
       const decoder = new TextDecoder()
       try {
         while (readerActiveRef.current) {
@@ -45,9 +51,16 @@ export function useSerialPort(onLine: (line: string) => void) {
           }
         }
       } catch (err) {
-        console.error("Serial read error:", err)
+        // A cancel() during disconnect surfaces here; only log unexpected errors
+        // (e.g. the device was physically unplugged mid-stream).
+        if (readerActiveRef.current) console.error("Serial read error:", err)
       } finally {
-        reader.releaseLock()
+        try {
+          reader.releaseLock()
+        } catch {
+          // Already released / stream errored — nothing to do.
+        }
+        if (readerRef.current === reader) readerRef.current = null
       }
     } catch (err) {
       console.error("Serial reader setup error:", err)
@@ -63,7 +76,7 @@ export function useSerialPort(onLine: (line: string) => void) {
       mockModeActiveRef.current = false
       setConnected(true)
       setError(null)
-      startReadLoop(selectedPort)
+      readLoopRef.current = startReadLoop(selectedPort)
     } catch (err) {
       console.error("Failed to open serial port:", err)
       setError("Failed to open serial port. Please try again.")
@@ -75,6 +88,22 @@ export function useSerialPort(onLine: (line: string) => void) {
   const disconnect = useCallback(async () => {
     readerActiveRef.current = false
     mockModeActiveRef.current = false
+    // Cancel the in-flight read() so the loop breaks and its finally releases the
+    // stream lock; then await the loop so the lock is gone before we close().
+    // Skipping this leaves port.close() rejecting on a locked stream — the port
+    // stays open and the SAME SerialPort instance can't be reopened (the symptom
+    // where reconnect only works after a full page reload).
+    try {
+      await readerRef.current?.cancel()
+    } catch {
+      // Reader already gone — fine.
+    }
+    try {
+      await readLoopRef.current
+    } catch {
+      // Loop already settled — fine.
+    }
+    readLoopRef.current = null
     if (portRef.current) {
       try {
         await portRef.current.close()
@@ -99,10 +128,12 @@ export function useSerialPort(onLine: (line: string) => void) {
     }
   }, [])
 
-  // Release the port when the component tree unmounts.
+  // Release the port when the component tree unmounts. Cancel the reader first
+  // so the stream lock is freed before close() (same reason as in disconnect).
   useEffect(() => {
     return () => {
       readerActiveRef.current = false
+      readerRef.current?.cancel().catch(() => {})
       portRef.current?.close().catch(console.error)
     }
   }, [])
