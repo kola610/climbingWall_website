@@ -24,6 +24,7 @@ import { parseSerialLine } from "../utils/serialParser"
 import { exportToCsv } from "../utils/csvExport"
 import { createChartOptions } from "../utils/chartOptions"
 import { saveRecordingToBackend } from "../utils/recordingApi"
+import { toDisplayFrameReadings } from "../utils/wallGeometry"
 
 import { DashboardToolbar } from "./dashboard/DashboardToolbar"
 import { CalibrationModal } from "./dashboard/CalibrationModal"
@@ -126,19 +127,35 @@ export default function SensorDashboard() {
   }
 
   // --- Step 5: derived values for presentational layer ---
+  // Re-express the live window in the chosen coordinate frame. World (the stored
+  // canonical) returns the same array reference, so this is free unless the user
+  // switches to Board. Board frame undoes the wall-decline rotation at the
+  // current θ. The norm-based charts are rotation-invariant, so only the
+  // directional "Force by Direction" view actually changes.
+  const displayDataForCharts = useMemo(
+    () =>
+      toDisplayFrameReadings(
+        sensorData.displayData,
+        displaySettings.coordinateFrame,
+        displaySettings.wallDeclineDeg,
+      ),
+    [sensorData.displayData, displaySettings.coordinateFrame, displaySettings.wallDeclineDeg],
+  )
+
   // Memoised so the options object keeps a stable reference between renders
   // that don't touch its inputs, letting memoised chart components skip
-  // unnecessary Chart.js updates.
+  // unnecessary Chart.js updates. Built from the frame-adjusted data so the
+  // y-axis auto-scaling matches what is actually plotted.
   const chartOptions = useMemo(
     () =>
       createChartOptions(
-        sensorData.displayData,
+        displayDataForCharts,
         displaySettings.yAxisMax,
         displaySettings.displaySampleCount,
         displaySettings.autoScaleY,
       ),
     [
-      sensorData.displayData,
+      displayDataForCharts,
       displaySettings.yAxisMax,
       displaySettings.displaySampleCount,
       displaySettings.autoScaleY,
@@ -211,6 +228,7 @@ export default function SensorDashboard() {
         displaySampleCount={displaySettings.displaySampleCount}
         autoScaleY={displaySettings.autoScaleY}
         yAxisMax={displaySettings.yAxisMax}
+        coordinateFrame={displaySettings.coordinateFrame}
         onConnectToggle={handleConnectToggle}
         onCollectToggle={sensorData.toggleDataCollection}
         onStartFresh={sensorData.startFreshCollection}
@@ -219,6 +237,7 @@ export default function SensorDashboard() {
         onSampleCountChange={displaySettings.handleSampleCountChange}
         onAutoScaleChange={displaySettings.setAutoScaleY}
         onYAxisMaxChange={(values) => displaySettings.setYAxisMax(values[0])}
+        onCoordinateFrameChange={displaySettings.setCoordinateFrame}
       />
 
       <ConnectionStatus
@@ -254,7 +273,7 @@ export default function SensorDashboard() {
 
         <TabsContent value="norms" className="mt-0">
           <ForceMagnitudesTab
-            displayData={sensorData.displayData}
+            displayData={displayDataForCharts}
             displaySampleCount={displaySettings.displaySampleCount}
             totalSamples={sensorData.totalSamples}
             chartOptions={chartOptions}
@@ -263,11 +282,12 @@ export default function SensorDashboard() {
 
         <TabsContent value="components" className="mt-0">
           <ComponentsTab
-            displayData={sensorData.displayData}
+            displayData={displayDataForCharts}
             displaySampleCount={displaySettings.displaySampleCount}
             totalSamples={sensorData.totalSamples}
             chartOptions={chartOptions}
             wallDeclineDeg={displaySettings.wallDeclineDeg}
+            coordinateFrame={displaySettings.coordinateFrame}
           />
         </TabsContent>
 
@@ -298,6 +318,8 @@ export default function SensorDashboard() {
             compareMode={compareMode}
             onSetCompareMode={setCompareMode}
             comparison={comparison}
+            coordinateFrame={displaySettings.coordinateFrame}
+            currentWallDeclineDeg={displaySettings.wallDeclineDeg}
           />
         </TabsContent>
       </Tabs>

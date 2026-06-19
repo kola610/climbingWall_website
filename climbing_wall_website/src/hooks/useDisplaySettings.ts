@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react"
 import { usePersistedState } from "./usePersistedState"
 import { getWallDeclineDeg, setWallDeclineDeg } from "../utils/wallGeometry"
+import type { CoordinateFrame } from "../utils/wallGeometry"
 
 /**
  * Manages the user-controlled display settings that affect chart rendering.
@@ -12,6 +13,13 @@ export function useDisplaySettings() {
   )
   const [autoScaleY, setAutoScaleY] = usePersistedState("cw:autoScaleY", false)
   const [yAxisMax, setYAxisMax] = usePersistedState("cw:yAxisMax", 1023)
+
+  // Coordinate system the force charts are shown in: tilt-corrected world frame
+  // (default) or the raw board/sensor axes. Purely a display choice — the data is
+  // always stored in world frame; board frame is derived at render time.
+  const [coordinateFrame, setCoordinateFrame] = usePersistedState<CoordinateFrame>(
+    "cw:coordinateFrame", "world",
+  )
 
   // Wall decline angle θ used to project X/Z into the world frame. The module
   // store in wallGeometry (read by serialParser on every sample, and persisted)
@@ -32,6 +40,8 @@ export function useDisplaySettings() {
     autoScaleY,
     yAxisMax,
     wallDeclineDeg,
+    coordinateFrame,
+    setCoordinateFrame,
     setAutoScaleY,
     setYAxisMax,
     handleSampleCountChange,

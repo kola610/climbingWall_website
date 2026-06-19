@@ -13,8 +13,10 @@ import {
   PowerOff,
   Settings2,
   Ruler,
+  Axis3d,
 } from "lucide-react"
 import { SAMPLE_COUNT_OPTIONS } from "../../constants/sensor"
+import type { CoordinateFrame } from "../../utils/wallGeometry"
 
 interface DashboardToolbarProps {
   connected: boolean
@@ -32,9 +34,11 @@ interface DashboardToolbarProps {
   displaySampleCount: number | "all"
   autoScaleY: boolean
   yAxisMax: number
+  coordinateFrame: CoordinateFrame
   onSampleCountChange: (value: string) => void
   onAutoScaleChange: (checked: boolean) => void
   onYAxisMaxChange: (values: number[]) => void
+  onCoordinateFrameChange: (frame: CoordinateFrame) => void
 }
 
 /**
@@ -62,9 +66,11 @@ export function DashboardToolbar({
   displaySampleCount,
   autoScaleY,
   yAxisMax,
+  coordinateFrame,
   onSampleCountChange,
   onAutoScaleChange,
   onYAxisMaxChange,
+  onCoordinateFrameChange,
 }: DashboardToolbarProps) {
   const [exportPopoverOpen, setExportPopoverOpen] = useState(false)
   const [savePopoverOpen, setSavePopoverOpen] = useState(false)
@@ -266,6 +272,39 @@ export function DashboardToolbar({
 
         {/* ── Secondary actions ── */}
         <div className="flex items-center gap-2">
+          {/* Coordinate system toggle — World (tilt-corrected vertical / out-of-wall)
+              vs Board (raw sensor axes: along-wall / board-normal). Purely a display
+              choice; the data is always stored in World frame. */}
+          <div
+            className="flex h-10 items-center overflow-hidden rounded-md border text-sm"
+            title="Show forces in tilt-corrected World coordinates, or the raw Board (sensor) axes"
+          >
+            <span className="flex h-full items-center gap-1.5 border-r bg-muted/40 px-2.5 text-muted-foreground">
+              <Axis3d className="h-4 w-4" />
+              <span className="hidden text-xs font-medium lg:inline">Coords</span>
+            </span>
+            <button
+              onClick={() => onCoordinateFrameChange("world")}
+              className={`h-full px-3 transition-colors ${
+                coordinateFrame === "world"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-background text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              World
+            </button>
+            <button
+              onClick={() => onCoordinateFrameChange("board")}
+              className={`h-full border-l px-3 transition-colors ${
+                coordinateFrame === "board"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-background text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              Board
+            </button>
+          </div>
+
           {/* 3. Calibrate Sensors (per-board scale/offset wizard) */}
           <Button
             onClick={onOpenCalibration}

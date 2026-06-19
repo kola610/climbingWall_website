@@ -12,6 +12,8 @@ import type { ComparisonDataState } from "../../../hooks/useComparisonData"
 import { ComparisonView } from "../comparison/ComparisonView"
 import type { RecordingMeta } from "../../../utils/recordingApi"
 import { buildCsvContent } from "../../../utils/csvExport"
+import { toDisplayFrameReadings } from "../../../utils/wallGeometry"
+import type { CoordinateFrame } from "../../../utils/wallGeometry"
 
 interface RecentRecordingsTabProps {
   /**
@@ -23,6 +25,10 @@ interface RecentRecordingsTabProps {
   compareMode: boolean
   onSetCompareMode: (value: boolean) => void
   comparison: ComparisonDataState
+  /** Display coordinate frame (shared with the live tabs). */
+  coordinateFrame: CoordinateFrame
+  /** Current θ, used as the fallback for recordings saved without a stored angle. */
+  currentWallDeclineDeg: number
 }
 
 function formatDate(iso: string): string {
@@ -126,6 +132,8 @@ export function RecentRecordingsTab({
   compareMode,
   onSetCompareMode,
   comparison,
+  coordinateFrame,
+  currentWallDeclineDeg,
 }: RecentRecordingsTabProps) {
   const {
     recordings,
@@ -209,6 +217,15 @@ export function RecentRecordingsTab({
   }), [chartOptions])
 
   const selectedMeta = recordings.find((r) => r.id === selectedId)
+
+  // The recording was stored in world frame at its capture θ. To show it in board
+  // (raw sensor) frame we undo that exact rotation — using the angle saved in the
+  // recording's meta, or the current θ as a fallback for older recordings.
+  const recordingDeclineDeg = selectedMeta?.wall_decline_deg ?? currentWallDeclineDeg
+  const selectedDataForCharts = useMemo(
+    () => toDisplayFrameReadings(selectedData, coordinateFrame, recordingDeclineDeg),
+    [selectedData, coordinateFrame, recordingDeclineDeg],
+  )
 
   const handleExportSelected = () => {
     if (!selectedMeta || selectedData.length === 0) return
@@ -407,7 +424,7 @@ export function RecentRecordingsTab({
                 </CardHeader>
                 <CardContent>
                   <div className="h-[320px]">
-                    <Line data={buildNormChartData(selectedData)} options={chartOptions} />
+                    <Line data={buildNormChartData(selectedDataForCharts)} options={chartOptions} />
                   </div>
                 </CardContent>
               </Card>
@@ -419,7 +436,16 @@ export function RecentRecordingsTab({
                     Force by Direction — per Sensor
                   </CardTitle>
                   <p className="text-xs text-muted-foreground">
-                    X, Y, Z components for each sensor
+                    X, Y, Z components for each sensor —{" "}
+                    {coordinateFrame === "world" ? (
+                      <span className="font-medium text-foreground">
+                        World coordinates (vertical / out-of-wall)
+                      </span>
+                    ) : (
+                      <span className="font-medium text-foreground">
+                        Board axes (raw, uncorrected for tilt)
+                      </span>
+                    )}
                   </p>
                 </CardHeader>
                 <CardContent>
@@ -435,7 +461,7 @@ export function RecentRecordingsTab({
                         </div>
                         <div className="h-[220px]">
                           <Line
-                            data={buildComponentChartData(selectedData, sensorIndex)}
+                            data={buildComponentChartData(selectedDataForCharts, sensorIndex)}
                             options={componentChartOptions}
                           />
                         </div>

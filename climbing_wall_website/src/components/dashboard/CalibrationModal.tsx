@@ -14,6 +14,7 @@ import { SENSOR_NAMES, FORCE_COMPONENTS } from "../../constants/sensor"
 import {
   computeAxisCalibration,
   computeHangCalibration,
+  findDefaultChannels,
   GRAVITY,
   CALIBRATION_FORCE_DIRECTION,
 } from "../../utils/calibration"
@@ -87,12 +88,17 @@ export function CalibrationModal({
   const [steps, setSteps] = useState<StepState[]>(freshSteps)
   const [capturingStep, setCapturingStep] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
-  // Channels calibrated during this session, keyed "board-axis", for badges.
+  // Calibrated axes, keyed "board-axis", shown as green checks. Seeded from the
+  // persisted calibration on open (so a check means "actually calibrated, not on
+  // factory defaults", across sessions) and updated as axes are saved.
   const [doneAxes, setDoneAxes] = useState<Set<string>>(new Set())
   // Live signed-raw array, for the live readout.
   const [liveSample, setLiveSample] = useState<number[] | null>(null)
   // Transient "saved" confirmation shown after a successful save.
   const [savedNotice, setSavedNotice] = useState<string | null>(null)
+  // When finishing with axes still on factory defaults, a confirm page is shown
+  // instead of closing immediately.
+  const [showFinishWarning, setShowFinishWarning] = useState(false)
 
   // Decline angle θ drives the hang split (W·cosθ → X, W·sinθ → Z) and the
   // world-frame projection. It lives in the shared display-settings store and is
@@ -121,10 +127,18 @@ export function CalibrationModal({
       setSteps(freshSteps())
       setCapturingStep(null)
       setError(null)
-      setDoneAxes(new Set())
       setSavedNotice(null)
-      // Re-sync the θ field to the committed value (reads current value at open;
-      // intentionally not a dep so editing θ doesn't reset the wizard).
+      setShowFinishWarning(false)
+      // Seed green checks from the persisted calibration: any axis that isn't on
+      // factory defaults counts as already calibrated. Reads the current config
+      // at open; intentionally not a dep so live edits don't reset the wizard.
+      const defaults = new Set(findDefaultChannels(config))
+      const calibrated = new Set<string>()
+      for (let i = 0; i < 12; i++) {
+        if (!defaults.has(i)) calibrated.add(`${Math.floor(i / 3)}-${i % 3}`)
+      }
+      setDoneAxes(calibrated)
+      // Re-sync the θ field to the committed value.
       setDeclineInput(String(wallDeclineDeg))
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -151,6 +165,22 @@ export function CalibrationModal({
     if (capturingStep !== null) cancelCapture()
     onClose()
   }, [capturingStep, cancelCapture, onClose])
+
+  // Finishing the wizard: if any axis is still on factory defaults, surface a
+  // confirm page first instead of closing silently.
+  const requestClose = useCallback(() => {
+    if (capturingStep !== null) cancelCapture()
+    if (findDefaultChannels(config).length > 0) {
+      setShowFinishWarning(true)
+      return
+    }
+    onClose()
+  }, [capturingStep, cancelCapture, config, onClose])
+
+  const confirmFinish = useCallback(() => {
+    setShowFinishWarning(false)
+    onClose()
+  }, [onClose])
 
   // Close on Escape.
   useEffect(() => {
@@ -270,6 +300,13 @@ export function CalibrationModal({
   const liveZ = liveSample && zIdx !== null ? liveSample[zIdx] : null
   const w1 = parseFloat(steps[1].weightKg) || 0
 
+  // Boards/axes still on factory defaults, grouped for the finish-warning page.
+  const defaultChannels = findDefaultChannels(config)
+  const defaultsByBoard = SENSOR_NAMES.map((name, b) => ({
+    name,
+    axes: FORCE_COMPONENTS.filter((_, a) => defaultChannels.includes(b * 3 + a)),
+  })).filter((entry) => entry.axes.length > 0)
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={handleClose} />
@@ -294,7 +331,7 @@ export function CalibrationModal({
             )}
             <h3 className="text-lg font-semibold">Calibrate Sensors</h3>
           </div>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleClose}>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={requestClose}>
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -457,7 +494,8 @@ export function CalibrationModal({
               })}
             </div>
             <p className="text-center text-xs text-muted-foreground">
-              A green check means that axis was calibrated in this session.
+              A green check means that axis is calibrated. Axes without one fall back
+              to factory default values.
             </p>
           </div>
         )}
@@ -702,10 +740,55 @@ export function CalibrationModal({
           >
             <RotateCcw className="h-3.5 w-3.5" /> Reset to defaults
           </Button>
-          <Button variant="outline" size="sm" onClick={handleClose}>
+          <Button variant="outline" size="sm" onClick={requestClose}>
             Done
           </Button>
         </div>
+
+        {/* ── Finish warning: shown when leaving with axes still on defaults ── */}
+        {showFinishWarning && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-background/95 p-6 backdrop-blur-sm">
+            <div className="w-full max-w-md space-y-4">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-6 w-6 shrink-0 text-amber-500" />
+                <h3 className="text-lg font-semibold">
+                  Finish without calibrating everything?
+                </h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                These axes were never calibrated, so they'll keep their built-in{" "}
+                <span className="font-semibold text-foreground">factory default</span>{" "}
+                values — their forces may be inaccurate:
+              </p>
+              <div className="max-h-48 space-y-1.5 overflow-y-auto rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                {defaultsByBoard.map((entry) => (
+                  <div
+                    key={entry.name}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <span className="font-medium">{entry.name}</span>
+                    <span className="font-mono text-xs">{entry.axes.join(" · ")}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Go back and calibrate them (look for axes without a green check), or
+                finish anyway and use the defaults for now.
+              </p>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => setShowFinishWarning(false)}>
+                  Go back &amp; calibrate
+                </Button>
+                <Button
+                  onClick={confirmFinish}
+                  className="gap-1.5 bg-amber-600 text-white hover:bg-amber-700"
+                >
+                  Finish anyway
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

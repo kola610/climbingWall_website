@@ -82,6 +82,28 @@ export function setCalibration(cfg: CalibrationConfig): void {
 }
 
 /**
+ * Flat channel indices (board*3 + axis, GUI-slot order) whose offset AND scale
+ * still equal the built-in defaults — i.e. axes that were never individually
+ * calibrated and therefore fall back to factory default values. The calibration
+ * wizard uses this to warn the user before they finish with axes still on
+ * defaults. A calibrated axis always carries a computed offset/scale that differs
+ * from the seed, so exact equality is a reliable "untouched" test.
+ */
+export function findDefaultChannels(config: CalibrationConfig): number[] {
+  const def = defaultCalibration()
+  const out: number[] = []
+  for (let i = 0; i < 12; i++) {
+    if (
+      config.axisScales[i] === def.axisScales[i] &&
+      config.groundOffsets[i] === def.groundOffsets[i]
+    ) {
+      out.push(i)
+    }
+  }
+  return out
+}
+
+/**
  * Derive an axis's ground offset and scale from a 0/10/20-kg (etc.) sweep.
  *
  * `rawsPerStep[k]` is the averaged signed-raw reading (post-sign, pre-offset,

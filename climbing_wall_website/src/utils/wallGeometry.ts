@@ -36,6 +36,8 @@
  * structure (rotation by θ) stays the same either way.
  */
 
+import type { SensorReading } from "../types/sensor"
+
 export const DEFAULT_WALL_DECLINE_DEG = 16
 export const WALL_DECLINE_STORAGE_KEY = "cw:wallDeclineDeg"
 
@@ -106,6 +108,36 @@ export function applyWallDecline(
     out[zi] = zw
   }
   return out
+}
+
+/**
+ * Coordinate system the forces are displayed in.
+ *   "world" — tilt-corrected (X = true vertical, Z = out of wall). This is the
+ *             canonical frame everything is STORED in (post-rotation).
+ *   "board" — raw sensor axes (X = along the wall / in-plane, Z = board normal),
+ *             i.e. NOT corrected for the wall decline.
+ */
+export type CoordinateFrame = "world" | "board"
+
+/**
+ * Re-express stored (world-frame) readings in the requested display frame.
+ *
+ * World is the canonical stored frame, so it is returned unchanged (same array
+ * reference, so memoised consumers can skip work). Board frame is recovered by
+ * undoing the wall-decline rotation — a rotation by −θ — which is exact because
+ * the rotation is orthogonal. `declineDeg` is the angle the data was captured at
+ * (the current θ for live data, or a recording's stored θ).
+ */
+export function toDisplayFrameReadings(
+  readings: SensorReading[],
+  frame: CoordinateFrame,
+  declineDeg: number,
+): SensorReading[] {
+  if (frame === "world") return readings
+  return readings.map((r) => ({
+    ...r,
+    values: applyWallDecline(r.values, -declineDeg),
+  }))
 }
 
 /**

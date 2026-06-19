@@ -1,4 +1,5 @@
 import type { SensorReading } from "../types/sensor"
+import { getWallDeclineDeg } from "./wallGeometry"
 
 const BACKEND_BASE_URL = import.meta.env.VITE_BACKEND_URL ?? ""
 
@@ -15,6 +16,12 @@ export interface RecordingMeta {
   sample_count: number
   duration_s: number
   label: string
+  /**
+   * Wall decline angle θ (degrees) the recording was captured at. Present for
+   * recordings saved after this field was added; used to re-express the data in
+   * raw board (sensor) coordinates exactly. Undefined for older recordings.
+   */
+  wall_decline_deg?: number
 }
 
 export async function saveRecordingToBackend(
@@ -29,6 +36,9 @@ export async function saveRecordingToBackend(
       label: trimmed,           // human-readable display name (stored as-is)
       filename: trimmed,        // used as filename prefix (backend sanitises it)
       readings,
+      // The θ active at capture time, so the recording can later be shown in raw
+      // board coordinates exactly even if the live θ setting changes.
+      wall_decline_deg: getWallDeclineDeg(),
     }),
   })
   if (!response.ok) {

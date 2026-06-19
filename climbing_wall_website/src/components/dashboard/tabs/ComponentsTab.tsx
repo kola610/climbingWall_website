@@ -9,6 +9,7 @@ import { Maximize2, X } from "lucide-react"
 import { SensorToggleBar } from "../SensorToggleBar"
 import { useSensorToggle } from "../../../hooks/useSensorToggle"
 import type { SensorReading } from "../../../types/sensor"
+import type { CoordinateFrame } from "../../../utils/wallGeometry"
 
 interface ComponentsTabProps {
   displayData: SensorReading[]
@@ -16,6 +17,7 @@ interface ComponentsTabProps {
   totalSamples: number
   chartOptions: ChartOptions<"line">
   wallDeclineDeg: number
+  coordinateFrame: CoordinateFrame
 }
 
 /**
@@ -90,6 +92,7 @@ export function ComponentsTab({
   totalSamples,
   chartOptions,
   wallDeclineDeg,
+  coordinateFrame,
 }: ComponentsTabProps) {
   const [expandedSensor, setExpandedSensor] = useState<number | null>(null)
   const { activeSensors, toggleSensor, visibleIndices } = useSensorToggle()
@@ -156,13 +159,25 @@ export function ComponentsTab({
             </div>
           </div>
 
-          {/* Prominent decline assumption, next to the directional X/Z readout. */}
-          <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
-            <span className="font-semibold">X</span> (vertical) and{" "}
-            <span className="font-semibold">Z</span> (out of wall) assume the wall is
-            declined <span className="font-semibold">{wallDeclineDeg}°</span> from
-            vertical. Set this in <span className="font-semibold">Calibrate Sensors</span>. Y is unaffected.
-          </div>
+          {/* Coordinate-frame note — explains what X/Z mean in the active frame. */}
+          {coordinateFrame === "world" ? (
+            <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
+              <span className="font-semibold">World coordinates.</span>{" "}
+              <span className="font-semibold">X</span> (vertical) and{" "}
+              <span className="font-semibold">Z</span> (out of wall) assume the wall is
+              declined <span className="font-semibold">{wallDeclineDeg}°</span> from
+              vertical. Set this in <span className="font-semibold">Calibrate Sensors</span>. Y is unaffected.
+            </div>
+          ) : (
+            <div className="mt-2 rounded-md border border-slate-300 bg-slate-100 px-3 py-1.5 text-xs text-slate-700">
+              <span className="font-semibold">Board (raw sensor) coordinates.</span>{" "}
+              <span className="font-semibold">X</span> = along the wall (in-plane),{" "}
+              <span className="font-semibold">Z</span> = perpendicular to the board —
+              NOT corrected for the <span className="font-semibold">{wallDeclineDeg}°</span> tilt.
+              Switch to <span className="font-semibold">World</span> for true
+              vertical / out-of-wall forces. Y is the same in both.
+            </div>
+          )}
 
           {displayData.length > 0 && (
             <div className="mt-3">
