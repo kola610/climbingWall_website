@@ -32,11 +32,9 @@ interface DashboardToolbarProps {
   displaySampleCount: number | "all"
   autoScaleY: boolean
   yAxisMax: number
-  wallDeclineDeg: number
   onSampleCountChange: (value: string) => void
   onAutoScaleChange: (checked: boolean) => void
   onYAxisMaxChange: (values: number[]) => void
-  onWallDeclineChange: (deg: number) => void
 }
 
 /**
@@ -64,24 +62,13 @@ export function DashboardToolbar({
   displaySampleCount,
   autoScaleY,
   yAxisMax,
-  wallDeclineDeg,
   onSampleCountChange,
   onAutoScaleChange,
   onYAxisMaxChange,
-  onWallDeclineChange,
 }: DashboardToolbarProps) {
   const [exportPopoverOpen, setExportPopoverOpen] = useState(false)
   const [savePopoverOpen, setSavePopoverOpen] = useState(false)
   const [saveName, setSaveName] = useState("")
-  // Local text mirror so the field can be cleared / typed freely; commits to the
-  // store on every valid number.
-  const [declineInput, setDeclineInput] = useState(String(wallDeclineDeg))
-
-  const handleDeclineInput = (raw: string) => {
-    setDeclineInput(raw)
-    const n = parseFloat(raw)
-    if (Number.isFinite(n)) onWallDeclineChange(n)
-  }
 
   const handleConfirmExport = () => {
     onExportCsv()
@@ -351,34 +338,6 @@ export function DashboardToolbar({
                   <label htmlFor="autoScale" className="text-sm font-medium cursor-pointer">
                     Auto-adjust scale to data
                   </label>
-                </div>
-
-                {/* Wall geometry — decline angle θ used for the X/Z projection */}
-                <div className="space-y-1.5 pt-3 border-t">
-                  <label htmlFor="wallDecline" className="text-sm font-medium">
-                    Wall decline angle θ
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      id="wallDecline"
-                      type="number"
-                      inputMode="decimal"
-                      step="0.5"
-                      min={-90}
-                      max={90}
-                      value={declineInput}
-                      onChange={(e) => handleDeclineInput(e.target.value)}
-                      className="w-24 rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                    />
-                    <span className="text-sm text-muted-foreground">° from vertical</span>
-                  </div>
-                  <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
-                    <span className="font-semibold">Assumption:</span> X/Z force
-                    calibration assumes the wall is declined by{" "}
-                    <span className="font-semibold">{wallDeclineDeg}°</span> from
-                    vertical. An incorrect value silently invalidates the X (vertical)
-                    and Z (out-of-wall) forces. Y is unaffected.
-                  </div>
                 </div>
 
                 <div className="flex items-center justify-between pt-2 border-t text-sm">

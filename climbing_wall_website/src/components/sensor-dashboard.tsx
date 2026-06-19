@@ -211,7 +211,6 @@ export default function SensorDashboard() {
         displaySampleCount={displaySettings.displaySampleCount}
         autoScaleY={displaySettings.autoScaleY}
         yAxisMax={displaySettings.yAxisMax}
-        wallDeclineDeg={displaySettings.wallDeclineDeg}
         onConnectToggle={handleConnectToggle}
         onCollectToggle={sensorData.toggleDataCollection}
         onStartFresh={sensorData.startFreshCollection}
@@ -220,7 +219,6 @@ export default function SensorDashboard() {
         onSampleCountChange={displaySettings.handleSampleCountChange}
         onAutoScaleChange={displaySettings.setAutoScaleY}
         onYAxisMaxChange={(values) => displaySettings.setYAxisMax(values[0])}
-        onWallDeclineChange={displaySettings.handleWallDeclineChange}
       />
 
       <ConnectionStatus
@@ -234,6 +232,8 @@ export default function SensorDashboard() {
         onClose={() => setShowCalibration(false)}
         connected={serial.connected}
         calibration={calibration}
+        wallDeclineDeg={displaySettings.wallDeclineDeg}
+        onWallDeclineChange={displaySettings.handleWallDeclineChange}
       />
 
       <Tabs defaultValue="norms" value={activeTab} onValueChange={setActiveTab} className="w-full">

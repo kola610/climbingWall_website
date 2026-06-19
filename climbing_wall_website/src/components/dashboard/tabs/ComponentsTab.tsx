@@ -161,7 +161,7 @@ export function ComponentsTab({
             <span className="font-semibold">X</span> (vertical) and{" "}
             <span className="font-semibold">Z</span> (out of wall) assume the wall is
             declined <span className="font-semibold">{wallDeclineDeg}°</span> from
-            vertical. Set this in Chart Settings → Wall decline angle. Y is unaffected.
+            vertical. Set this in <span className="font-semibold">Calibrate Sensors</span>. Y is unaffected.
           </div>
 
           {displayData.length > 0 && (

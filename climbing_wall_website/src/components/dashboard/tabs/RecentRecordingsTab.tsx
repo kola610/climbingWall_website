@@ -161,6 +161,11 @@ export function RecentRecordingsTab({
   const chartOptions = useMemo((): ChartOptions<"line"> => ({
     responsive: true,
     maintainAspectRatio: false,
+    // Animations off (not just zero-duration) keeps the tooltip crisp — the
+    // tooltip's opacity fade otherwise flickers on hover. `normalized` lets
+    // Chart.js binary-search the ascending sampleNumber x-axis when hit-testing.
+    animation: false,
+    normalized: true,
     scales: {
       y: {
         min: 0,
@@ -173,18 +178,18 @@ export function RecentRecordingsTab({
         ticks: { maxTicksLimit: 10 },
       },
     },
-    animation: { duration: 0 },
+    interaction: { mode: "index", intersect: false },
     plugins: {
       legend: { position: "top" },
       tooltip: {
-        mode: "index",
-        intersect: false,
+        enabled: true,
+        animation: false,
+        position: "nearest",
         callbacks: {
           title: (items) => `Sample: ${items[0]?.parsed?.x ?? ""}`,
         },
       },
     },
-    interaction: { mode: "nearest", axis: "x", intersect: false },
   }), [])
 
   // Options for the per-sensor X/Y/Z direction charts. These plot raw force

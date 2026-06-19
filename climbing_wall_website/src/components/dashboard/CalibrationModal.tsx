@@ -8,6 +8,7 @@ import {
   Crosshair,
   RotateCcw,
   Loader2,
+  Triangle,
 } from "lucide-react"
 import { SENSOR_NAMES, FORCE_COMPONENTS } from "../../constants/sensor"
 import {
@@ -16,7 +17,6 @@ import {
   GRAVITY,
   CALIBRATION_FORCE_DIRECTION,
 } from "../../utils/calibration"
-import { getWallDeclineDeg } from "../../utils/wallGeometry"
 import type { UseCalibrationReturn } from "../../hooks/useCalibration"
 
 interface CalibrationModalProps {
@@ -24,9 +24,12 @@ interface CalibrationModalProps {
   onClose: () => void
   connected: boolean
   calibration: UseCalibrationReturn
+  /** Wall decline angle θ — owned by display settings, edited here in the wizard. */
+  wallDeclineDeg: number
+  onWallDeclineChange: (deg: number) => void
 }
 
-type Stage = "confirm" | "boards" | "mode" | "steps"
+type Stage = "confirm" | "angle" | "boards" | "mode" | "steps"
 /** "hang" calibrates X (in-plane) and Z (normal) together; "y" is sideways. */
 type Mode = "hang" | "y"
 
@@ -72,6 +75,8 @@ export function CalibrationModal({
   onClose,
   connected,
   calibration,
+  wallDeclineDeg,
+  onWallDeclineChange,
 }: CalibrationModalProps) {
   const { config, getLatestSample, captureAverages, cancelCapture, commitChannels, resetToDefaults } =
     calibration
@@ -89,9 +94,23 @@ export function CalibrationModal({
   // Transient "saved" confirmation shown after a successful save.
   const [savedNotice, setSavedNotice] = useState<string | null>(null)
 
-  // Decline angle θ drives the hang split (W·cosθ → X, W·sinθ → Z). Read once per
-  // render; the value is stable while the wizard is open.
-  const declineDeg = getWallDeclineDeg()
+  // Decline angle θ drives the hang split (W·cosθ → X, W·sinθ → Z) and the
+  // world-frame projection. It lives in the shared display-settings store and is
+  // edited right here in the wizard (see the prominent θ control below). A local
+  // text mirror lets the field be cleared / typed freely; every valid number
+  // commits immediately so the calibration math re-derives live.
+  const declineDeg = wallDeclineDeg
+  const [declineInput, setDeclineInput] = useState(String(wallDeclineDeg))
+
+  // θ is a physical wall property — clamp to a sane range. The HTML min/max are
+  // only hints and don't stop a typed value (e.g. 12000).
+  const handleDeclineInput = (raw: string) => {
+    setDeclineInput(raw)
+    const n = parseFloat(raw)
+    if (Number.isFinite(n)) onWallDeclineChange(Math.min(90, Math.max(-90, n)))
+  }
+  // Snap the visible text back to the committed (clamped) value on blur.
+  const handleDeclineBlur = () => setDeclineInput(String(wallDeclineDeg))
 
   // Reset everything when the modal is (re)opened.
   useEffect(() => {
@@ -104,7 +123,11 @@ export function CalibrationModal({
       setError(null)
       setDoneAxes(new Set())
       setSavedNotice(null)
+      // Re-sync the θ field to the committed value (reads current value at open;
+      // intentionally not a dep so editing θ doesn't reset the wizard).
+      setDeclineInput(String(wallDeclineDeg))
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   // Auto-dismiss the saved confirmation after a few seconds.
@@ -260,7 +283,8 @@ export function CalibrationModal({
                 size="icon"
                 className="h-8 w-8"
                 onClick={() => {
-                  if (stage === "boards") setStage("confirm")
+                  if (stage === "angle") setStage("confirm")
+                  else if (stage === "boards") setStage("angle")
                   else if (stage === "mode") goBoards()
                   else if (stage === "steps") setStage("mode")
                 }}
@@ -305,9 +329,10 @@ export function CalibrationModal({
             <p className="text-sm text-muted-foreground">
               Calibrate each of the 4 boards. The wall is declined{" "}
               <span className="font-semibold text-foreground">{declineDeg}°</span> from
-              vertical (set in Chart Settings), so <span className="font-semibold">hanging
-              a single known weight</span> loads both the X (along-wall) and Z (out-of-wall)
-              axes at once — one hang calibrates both. Y (sideways) is calibrated separately.
+              vertical (you confirm or change this in the next step), so{" "}
+              <span className="font-semibold">hanging a single known weight</span> loads both
+              the X (along-wall) and Z (out-of-wall) axes at once — one hang calibrates both.
+              Y (sideways) is calibrated separately.
             </p>
             <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
               <li>Pick a board on the wall.</li>
@@ -323,7 +348,75 @@ export function CalibrationModal({
               <Button variant="outline" onClick={handleClose}>
                 Cancel
               </Button>
-              <Button onClick={() => setStage("boards")}>Start Calibration</Button>
+              <Button onClick={() => setStage("angle")}>Start Calibration</Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Stage: Set wall angle θ ──
+            This is the ONLY place θ can change. It lives inside the calibration
+            flow (not a passive settings field) so the angle can't be desynced
+            from the saved X/Z scales without deliberately recalibrating. */}
+        {stage === "angle" && (
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm font-medium">Step 1 · Set the wall decline angle θ</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Set this to your wall's true lean-back from vertical. It splits a single
+                vertical hang into the X (along-wall) and Z (out-of-wall) axes, so the boards
+                you calibrate next are computed for exactly this angle.
+              </p>
+            </div>
+
+            <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-2.5">
+                  <Triangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+                  <div>
+                    <div className="text-sm font-bold text-amber-900">
+                      Wall decline angle&nbsp;θ
+                    </div>
+                    <p className="mt-0.5 text-xs text-amber-800">
+                      How far the wall leans back from vertical (−90° to 90°).
+                    </p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2 sm:pl-4">
+                  <input
+                    id="wallDecline"
+                    type="number"
+                    inputMode="decimal"
+                    step="0.5"
+                    min={-90}
+                    max={90}
+                    value={declineInput}
+                    onChange={(e) => handleDeclineInput(e.target.value)}
+                    onBlur={handleDeclineBlur}
+                    autoFocus
+                    className="w-24 rounded-md border-2 border-amber-400 bg-background px-3 py-2 text-lg font-bold text-amber-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                  <span className="text-sm font-medium text-amber-800 whitespace-nowrap">
+                    ° from vertical
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                θ defines how X &amp; Z are split from a hang. If you change it, recalibrate
+                each board's <span className="font-semibold">Hang → X &amp; Z</span> so the
+                directional forces stay correct. The overall force magnitude and Y are
+                unaffected.
+              </span>
+            </div>
+
+            <div className="flex justify-between gap-2 pt-2">
+              <Button variant="outline" onClick={() => setStage("confirm")}>
+                Back
+              </Button>
+              <Button onClick={() => setStage("boards")}>Next — pick a board</Button>
             </div>
           </div>
         )}
@@ -416,7 +509,7 @@ export function CalibrationModal({
             {declineTooSmall && (
               <p className="text-xs text-amber-700">
                 Wall decline θ is ~0°, so a vertical hang puts no load on the Z (normal)
-                axis and can't calibrate it. Set θ in Chart Settings first.
+                axis and can't calibrate it. Go back to “Set wall angle” and use a non-zero θ.
               </p>
             )}
           </div>

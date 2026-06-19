@@ -32,9 +32,20 @@ export function createChartOptions(
   return {
     responsive: true,
     maintainAspectRatio: false,
+    // Live charts redraw ~20×/s as new samples stream in. `{ duration: 0 }`
+    // keeps Chart.js's animation system running (just at zero length), which
+    // still drives the tooltip's opacity fade — and that fade gets retriggered
+    // on every redraw, so mid-fade it flickers and sometimes paints at full
+    // opacity. Turning animations fully off removes that glitch and the
+    // per-frame interpolation cost. The tooltip's own animation is disabled
+    // explicitly too, since it is configured separately from the chart's.
+    animation: false,
+    // The x data is strictly ascending and unique (sampleNumber), so Chart.js
+    // can skip its internal sort and binary-search during hit-testing — a real
+    // win for index-mode tooltips over hundreds of points.
+    normalized: true,
     scales: {
       y: {
-    
         max: effectiveYAxisMax,
         title: { display: true, text: "Force (N)" },
       },
@@ -48,18 +59,20 @@ export function createChartOptions(
         },
       },
     },
-    animation: { duration: 0 },
+    // One shared interaction mode for hover + tooltip means Chart.js computes a
+    // single active-element set per mouse move instead of two.
+    interaction: { mode: "index", intersect: false },
     plugins: {
       legend: { position: "top" },
       title: { display: false },
       tooltip: {
-        mode: "index",
-        intersect: false,
+        enabled: true,
+        animation: false,
+        position: "nearest",
         callbacks: {
           title: (items) => `Sample: ${items[0]?.parsed?.x ?? ""}`,
         },
       },
     },
-    interaction: { mode: "nearest", axis: "x", intersect: false },
   }
 }
