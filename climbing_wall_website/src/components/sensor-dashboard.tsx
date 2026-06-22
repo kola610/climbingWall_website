@@ -264,7 +264,7 @@ export default function SensorDashboard() {
             <Activity className="h-4 w-4" /> Force by Direction
           </TabsTrigger>
           <TabsTrigger value="jump" className="flex items-center gap-2">
-            <Timer className="h-4 w-4" /> Jump Test
+            <Timer className="h-4 w-4" /> Jump Test (BETA)
           </TabsTrigger>
           <TabsTrigger value="recordings" className="flex items-center gap-2">
             <FolderOpen className="h-4 w-4" /> Recordings

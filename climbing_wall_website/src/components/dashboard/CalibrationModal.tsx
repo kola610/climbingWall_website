@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { Button } from "../ui/button"
 import {
   X,
@@ -9,6 +9,7 @@ import {
   RotateCcw,
   Loader2,
   Triangle,
+  Trash2,
 } from "lucide-react"
 import { SENSOR_NAMES, FORCE_COMPONENTS } from "../../constants/sensor"
 import {
@@ -17,6 +18,7 @@ import {
   findDefaultChannels,
   GRAVITY,
   CALIBRATION_FORCE_DIRECTION,
+  type CalibrationConfig,
 } from "../../utils/calibration"
 import type { UseCalibrationReturn } from "../../hooks/useCalibration"
 
@@ -79,8 +81,15 @@ export function CalibrationModal({
   wallDeclineDeg,
   onWallDeclineChange,
 }: CalibrationModalProps) {
-  const { config, getLatestSample, captureAverages, cancelCapture, commitChannels, resetToDefaults } =
-    calibration
+  const {
+    config,
+    getLatestSample,
+    captureAverages,
+    cancelCapture,
+    commitChannels,
+    resetToDefaults,
+    restoreCalibration,
+  } = calibration
 
   const [stage, setStage] = useState<Stage>("confirm")
   const [board, setBoard] = useState<number | null>(null)
@@ -99,6 +108,13 @@ export function CalibrationModal({
   // When finishing with axes still on factory defaults, a confirm page is shown
   // instead of closing immediately.
   const [showFinishWarning, setShowFinishWarning] = useState(false)
+  // Second-stage red confirm for the destructive "Exit & discard" choice.
+  const [showExitConfirm, setShowExitConfirm] = useState(false)
+
+  // Snapshot of the calibration + θ taken when the wizard opened, so "Exit &
+  // discard" can roll back exactly the changes made during this session.
+  const configAtOpenRef = useRef<CalibrationConfig | null>(null)
+  const declineAtOpenRef = useRef(wallDeclineDeg)
 
   // Decline angle θ drives the hang split (W·cosθ → X, W·sinθ → Z) and the
   // world-frame projection. It lives in the shared display-settings store and is
@@ -129,6 +145,15 @@ export function CalibrationModal({
       setError(null)
       setSavedNotice(null)
       setShowFinishWarning(false)
+      setShowExitConfirm(false)
+      // Snapshot calibration + θ so "Exit & discard" can roll back exactly this
+      // session's changes.
+      configAtOpenRef.current = {
+        axisSigns: [...config.axisSigns],
+        groundOffsets: [...config.groundOffsets],
+        axisScales: [...config.axisScales],
+      }
+      declineAtOpenRef.current = wallDeclineDeg
       // Seed green checks from the persisted calibration: any axis that isn't on
       // factory defaults counts as already calibrated. Reads the current config
       // at open; intentionally not a dep so live edits don't reset the wizard.
@@ -181,6 +206,18 @@ export function CalibrationModal({
     setShowFinishWarning(false)
     onClose()
   }, [onClose])
+
+  // "Exit & discard" — roll back this session's calibration AND θ changes to the
+  // snapshot taken when the wizard opened, then close. No-op-safe when nothing
+  // changed (restores the same values).
+  const discardAndClose = useCallback(() => {
+    const snapshot = configAtOpenRef.current
+    if (snapshot) restoreCalibration(snapshot)
+    onWallDeclineChange(declineAtOpenRef.current)
+    setShowExitConfirm(false)
+    setShowFinishWarning(false)
+    onClose()
+  }, [restoreCalibration, onWallDeclineChange, onClose])
 
   // Close on Escape.
   useEffect(() => {
@@ -307,6 +344,36 @@ export function CalibrationModal({
     axes: FORCE_COMPONENTS.filter((_, a) => defaultChannels.includes(b * 3 + a)),
   })).filter((entry) => entry.axes.length > 0)
 
+  // Axes calibrated during THIS session (config differs from the open snapshot) —
+  // these are what "Exit & discard" rolls back. Grouped for the red confirm page.
+  const snapshot = configAtOpenRef.current
+  const sessionChangedChannels: number[] = []
+  if (snapshot) {
+    for (let i = 0; i < 12; i++) {
+      if (
+        config.axisScales[i] !== snapshot.axisScales[i] ||
+        config.groundOffsets[i] !== snapshot.groundOffsets[i]
+      ) {
+        sessionChangedChannels.push(i)
+      }
+    }
+  }
+  const sessionChangedByBoard = SENSOR_NAMES.map((name, b) => ({
+    name,
+    axes: FORCE_COMPONENTS.filter((_, a) => sessionChangedChannels.includes(b * 3 + a)),
+  })).filter((entry) => entry.axes.length > 0)
+  const thetaChangedThisSession = declineAtOpenRef.current !== wallDeclineDeg
+
+  // Exit & discard: jump straight to close when there's nothing to roll back,
+  // otherwise show the red confirm first.
+  const handleExitClick = () => {
+    if (sessionChangedChannels.length > 0 || thetaChangedThisSession) {
+      setShowExitConfirm(true)
+    } else {
+      discardAndClose()
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={handleClose} />
@@ -331,7 +398,13 @@ export function CalibrationModal({
             )}
             <h3 className="text-lg font-semibold">Calibrate Sensors</h3>
           </div>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={requestClose}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={handleClose}
+            title="Close without saving any changes"
+          >
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -382,9 +455,6 @@ export function CalibrationModal({
               written to <code>calibration_settings.json</code>.
             </p>
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={handleClose}>
-                Cancel
-              </Button>
               <Button onClick={() => setStage("angle")}>Start Calibration</Button>
             </div>
           </div>
@@ -740,7 +810,7 @@ export function CalibrationModal({
           >
             <RotateCcw className="h-3.5 w-3.5" /> Reset to defaults
           </Button>
-          <Button variant="outline" size="sm" onClick={requestClose}>
+          <Button variant="default" size="sm" onClick={requestClose}>
             Done
           </Button>
         </div>
@@ -771,19 +841,70 @@ export function CalibrationModal({
                   </div>
                 ))}
               </div>
-              <p className="text-xs text-muted-foreground">
-                Go back and calibrate them (look for axes without a green check), or
-                finish anyway and use the defaults for now.
-              </p>
-              <div className="flex justify-end gap-2 pt-1">
-                <Button variant="outline" onClick={() => setShowFinishWarning(false)}>
-                  Go back &amp; calibrate
+              <div className="flex flex-col gap-2 pt-1">
+                <Button onClick={confirmFinish} className="w-full">
+                  Continue — keep calibrated values, defaults for the rest
                 </Button>
                 <Button
-                  onClick={confirmFinish}
-                  className="gap-1.5 bg-amber-600 text-white hover:bg-amber-700"
+                  variant="outline"
+                  onClick={() => setShowFinishWarning(false)}
+                  className="w-full"
                 >
-                  Finish anyway
+                  Go back to calibrate
+                </Button>
+                <Button
+                  onClick={handleExitClick}
+                  className="mt-1 w-full gap-1.5 bg-red-600 text-white hover:bg-red-700"
+                >
+                  <Trash2 className="h-4 w-4" /> Exit &amp; discard this session's changes
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Exit & discard confirm (destructive, red) ── */}
+        {showExitConfirm && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-background/95 p-6 backdrop-blur-sm">
+            <div className="w-full max-w-md space-y-4">
+              <div className="flex items-center gap-2">
+                <Trash2 className="h-6 w-6 shrink-0 text-red-600" />
+                <h3 className="text-lg font-semibold text-red-700">
+                  Discard this session's calibrations?
+                </h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                This removes the calibrations you made since opening the wizard and
+                restores those axes to their previous values:
+              </p>
+              {sessionChangedByBoard.length > 0 && (
+                <div className="max-h-40 space-y-1.5 overflow-y-auto rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+                  {sessionChangedByBoard.map((entry) => (
+                    <div
+                      key={entry.name}
+                      className="flex items-center justify-between gap-3"
+                    >
+                      <span className="font-medium">{entry.name}</span>
+                      <span className="font-mono text-xs">{entry.axes.join(" · ")}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {thetaChangedThisSession && (
+                <p className="text-xs text-red-700">
+                  The wall angle θ will also revert to{" "}
+                  <span className="font-semibold">{declineAtOpenRef.current}°</span>.
+                </p>
+              )}
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => setShowExitConfirm(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={discardAndClose}
+                  className="gap-1.5 bg-red-600 text-white hover:bg-red-700"
+                >
+                  <Trash2 className="h-4 w-4" /> Discard &amp; exit
                 </Button>
               </div>
             </div>

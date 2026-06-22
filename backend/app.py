@@ -55,7 +55,13 @@ def _meta_path(csv_path: Path) -> Path:
     return csv_path.with_suffix(".meta.json")
 
 
-def _write_meta(csv_path: Path, label: str, sample_count: int, duration_s: float) -> dict:
+def _write_meta(
+    csv_path: Path,
+    label: str,
+    sample_count: int,
+    duration_s: float,
+    wall_decline_deg=None,
+) -> dict:
     meta = {
         "id": csv_path.stem,
         "filename": csv_path.name,
@@ -64,6 +70,11 @@ def _write_meta(csv_path: Path, label: str, sample_count: int, duration_s: float
         "duration_s": round(duration_s, 2),
         "label": label,
     }
+    # The wall decline angle θ the data was captured at. Stored so the frontend
+    # can re-express a recording in raw board (sensor) coordinates exactly, even
+    # if the live θ setting later changes. Omitted for older recordings.
+    if isinstance(wall_decline_deg, (int, float)):
+        meta["wall_decline_deg"] = wall_decline_deg
     with _meta_path(csv_path).open("w", encoding="utf-8") as f:
         json.dump(meta, f)
     return meta
@@ -267,6 +278,7 @@ def save_recording():
     # `filename` is used as the file prefix and is always sanitised.
     raw_label = str(payload.get("label", "")).strip()
     requested_name = str(payload.get("filename", raw_label)).strip()
+    wall_decline_deg = payload.get("wall_decline_deg")
 
     if not isinstance(readings, list) or len(readings) == 0:
         return jsonify({"error": "Payload must contain a non-empty 'readings' array."}), 400
@@ -306,7 +318,7 @@ def save_recording():
             pass
     # Store the user's original label for display; fall back to the sanitised prefix.
     display_label = raw_label if raw_label else (prefix if prefix != "recording" else "Recording")
-    _write_meta(filepath, display_label, count, duration_s)
+    _write_meta(filepath, display_label, count, duration_s, wall_decline_deg)
 
     return jsonify({
         "message": "Recording saved successfully.",

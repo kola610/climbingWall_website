@@ -143,6 +143,16 @@ export function useCalibration() {
     setConfig(next)
   }, [])
 
+  /**
+   * Replace the entire active config with `cfg` and persist it everywhere. Used by
+   * the calibration wizard's "Exit & discard" to roll back to a snapshot taken when
+   * the wizard opened, undoing any axes calibrated during the session.
+   */
+  const restoreCalibration = useCallback((cfg: CalibrationConfig) => {
+    persistCalibration(cfg)
+    setConfig(cfg)
+  }, [])
+
   return {
     config,
     feedSample,
@@ -151,6 +161,7 @@ export function useCalibration() {
     cancelCapture,
     commitChannels,
     resetToDefaults,
+    restoreCalibration,
   }
 }
 
