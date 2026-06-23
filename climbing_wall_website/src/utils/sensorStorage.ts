@@ -11,7 +11,10 @@ import type { SensorReading } from "../types/sensor"
  */
 
 const DB_NAME = "climbing-wall"
-const DB_VERSION = 1
+// v2: the canonical stored frame switched from world to sensor. Any buffer
+// written by v1 is world-frame and would be misread under the new convention,
+// so the upgrade drops and recreates the store (clean-slate migration).
+const DB_VERSION = 2
 const STORE_NAME = "recordings"
 const RECORD_KEY = "current"
 
@@ -20,9 +23,12 @@ function openDB(): Promise<IDBDatabase> {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
     request.onupgradeneeded = () => {
       const db = request.result
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME)
+      // Discard any pre-v2 (world-frame) buffer so stale data isn't reinterpreted
+      // as sensor frame, then recreate the store fresh.
+      if (db.objectStoreNames.contains(STORE_NAME)) {
+        db.deleteObjectStore(STORE_NAME)
       }
+      db.createObjectStore(STORE_NAME)
     }
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)

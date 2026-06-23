@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Line } from "react-chartjs-2"
 import type { ChartOptions } from "chart.js"
 import { RefreshCw, Clock, Database, Download, ArrowLeftRight, X } from "lucide-react"
@@ -13,7 +13,6 @@ import { ComparisonView } from "../comparison/ComparisonView"
 import type { RecordingMeta } from "../../../utils/recordingApi"
 import { buildCsvContent } from "../../../utils/csvExport"
 import { toDisplayFrameReadings } from "../../../utils/wallGeometry"
-import type { CoordinateFrame } from "../../../utils/wallGeometry"
 
 interface RecentRecordingsTabProps {
   /**
@@ -25,10 +24,6 @@ interface RecentRecordingsTabProps {
   compareMode: boolean
   onSetCompareMode: (value: boolean) => void
   comparison: ComparisonDataState
-  /** Display coordinate frame (shared with the live tabs). */
-  coordinateFrame: CoordinateFrame
-  /** Current θ, used as the fallback for recordings saved without a stored angle. */
-  currentWallDeclineDeg: number
 }
 
 function formatDate(iso: string): string {
@@ -132,8 +127,6 @@ export function RecentRecordingsTab({
   compareMode,
   onSetCompareMode,
   comparison,
-  coordinateFrame,
-  currentWallDeclineDeg,
 }: RecentRecordingsTabProps) {
   const {
     recordings,
@@ -146,9 +139,18 @@ export function RecentRecordingsTab({
     selectRecording,
   } = useRecentRecordings()
 
+  // World-frame view for the recordings tab. Default is the canonical sensor
+  // frame; the world view rotates by the wall tilt that was recorded WITH this
+  // capture (meta.wall_decline_deg) — the user does not pick the angle, it is a
+  // known property of the recording. The transformation is UI-only.
+  const [worldView, setWorldView] = useState(false)
+
   // Load on mount and re-load (selecting newest) whenever a save completes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { refresh() }, [refreshTrigger])
+
+  // Reset to the sensor view whenever the selected recording changes.
+  useEffect(() => { setWorldView(false) }, [selectedId])
 
   const handleToggleCompareMode = () => {
     if (compareMode) {
@@ -218,13 +220,16 @@ export function RecentRecordingsTab({
 
   const selectedMeta = recordings.find((r) => r.id === selectedId)
 
-  // The recording was stored in world frame at its capture θ. To show it in board
-  // (raw sensor) frame we undo that exact rotation — using the angle saved in the
-  // recording's meta, or the current θ as a fallback for older recordings.
-  const recordingDeclineDeg = selectedMeta?.wall_decline_deg ?? currentWallDeclineDeg
+  // The recording is stored in the canonical sensor frame. The world view is a
+  // display-only rotation by the tilt angle recorded with this capture (meta).
+  // Older recordings without a stored angle can only be shown in sensor frame.
+  const recordingAngle = selectedMeta?.wall_decline_deg
+  const hasRecordedAngle =
+    typeof recordingAngle === "number" && Number.isFinite(recordingAngle)
+  const coordinateFrame = worldView && hasRecordedAngle ? "world" : "sensor"
   const selectedDataForCharts = useMemo(
-    () => toDisplayFrameReadings(selectedData, coordinateFrame, recordingDeclineDeg),
-    [selectedData, coordinateFrame, recordingDeclineDeg],
+    () => toDisplayFrameReadings(selectedData, coordinateFrame, recordingAngle ?? 0),
+    [selectedData, coordinateFrame, recordingAngle],
   )
 
   const handleExportSelected = () => {
@@ -388,16 +393,49 @@ export function RecentRecordingsTab({
                   )}
                 </span>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleExportSelected}
-                disabled={dataLoading || selectedData.length === 0}
-                className="gap-1.5 shrink-0"
-              >
-                <Download className="h-3.5 w-3.5" />
-                Export CSV
-              </Button>
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Sensor / World toggle. The world angle is taken straight from
+                    the recording's stored tilt (meta.wall_decline_deg) — not a
+                    manual entry — since the angle is a known property of the
+                    capture. Only shown when the recording carries a tilt angle. */}
+                {hasRecordedAngle && (
+                  <div
+                    className="flex h-9 items-center overflow-hidden rounded-md border text-sm"
+                    title={`World view rotates by the wall tilt recorded with this capture (θ = ${recordingAngle}°).`}
+                  >
+                    <button
+                      onClick={() => setWorldView(false)}
+                      className={`h-full px-3 transition-colors ${
+                        !worldView
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-background text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      Sensor
+                    </button>
+                    <button
+                      onClick={() => setWorldView(true)}
+                      className={`h-full border-l px-3 transition-colors ${
+                        worldView
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-background text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      World · {recordingAngle}°
+                    </button>
+                  </div>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportSelected}
+                  disabled={dataLoading || selectedData.length === 0}
+                  className="gap-1.5"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Export CSV
+                </Button>
+              </div>
             </div>
           )}
 
@@ -439,11 +477,12 @@ export function RecentRecordingsTab({
                     X, Y, Z components for each sensor —{" "}
                     {coordinateFrame === "world" ? (
                       <span className="font-medium text-foreground">
-                        World coordinates (vertical / out-of-wall)
+                        World coordinates (vertical / out-of-wall), rotated by the
+                        recorded tilt θ = {recordingAngle}° at display time
                       </span>
                     ) : (
                       <span className="font-medium text-foreground">
-                        Board axes (raw, uncorrected for tilt)
+                        Sensor (board) axes — raw stored frame
                       </span>
                     )}
                   </p>

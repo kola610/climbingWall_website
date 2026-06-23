@@ -112,31 +112,33 @@ export function applyWallDecline(
 
 /**
  * Coordinate system the forces are displayed in.
- *   "world" — tilt-corrected (X = true vertical, Z = out of wall). This is the
- *             canonical frame everything is STORED in (post-rotation).
- *   "board" — raw sensor axes (X = along the wall / in-plane, Z = board normal),
- *             i.e. NOT corrected for the wall decline.
+ *   "sensor" — raw sensor/board axes (X = along the wall / in-plane, Z = board
+ *              normal). This is the canonical frame everything is STORED in; it
+ *              is the default display and applies no rotation.
+ *   "world"  — tilt-corrected (X = true vertical, Z = out of wall). A DERIVED,
+ *              opt-in view produced by rotating the stored sensor frame by θ at
+ *              render time. The stored buffer is never modified.
  */
-export type CoordinateFrame = "world" | "board"
+export type CoordinateFrame = "sensor" | "world"
 
 /**
- * Re-express stored (world-frame) readings in the requested display frame.
+ * Re-express stored (sensor-frame) readings in the requested display frame.
  *
- * World is the canonical stored frame, so it is returned unchanged (same array
- * reference, so memoised consumers can skip work). Board frame is recovered by
- * undoing the wall-decline rotation — a rotation by −θ — which is exact because
- * the rotation is orthogonal. `declineDeg` is the angle the data was captured at
- * (the current θ for live data, or a recording's stored θ).
+ * Sensor is the canonical stored frame, so it is returned unchanged (same array
+ * reference, so memoised consumers can skip work). World frame is derived by
+ * applying the wall-decline rotation by +θ — purely at the display layer, never
+ * touching the stored buffer. `declineDeg` is the tilt angle the user has entered
+ * and confirmed for the world view (live) or the angle chosen for a recording.
  */
 export function toDisplayFrameReadings(
   readings: SensorReading[],
   frame: CoordinateFrame,
   declineDeg: number,
 ): SensorReading[] {
-  if (frame === "world") return readings
+  if (frame === "sensor") return readings
   return readings.map((r) => ({
     ...r,
-    values: applyWallDecline(r.values, -declineDeg),
+    values: applyWallDecline(r.values, declineDeg),
   }))
 }
 

@@ -31,7 +31,7 @@ if (msg.type === "sensor") {
 [`parseSerialLine`](climbing_wall_website/src/utils/serialParser.ts:100) runs each raw line through a fixed sequence of transforms. The result exposes two arrays:
 
 - **`signedRaw`** — post-sign, pre-offset, pre-scale. Used only by the calibration wizard.
-- **`values`** — fully calibrated, world-frame Newtons. Stored and displayed everywhere else.
+- **`values`** — fully calibrated, **sensor-frame** Newtons (post remap → sign → offset → scale). This is the canonical frame stored and displayed everywhere. The wall-decline angle θ is **not** applied here.
 
 ### Step 1 — Parse
 
@@ -64,27 +64,15 @@ Subtract the zero-load raw reading per channel (`calibration.groundOffsets`). Th
 
 ### Step 5 — Apply axis scales
 
-Multiply per channel by `calibration.axisScales` (Newtons per raw-voltage-ratio unit, ~1e6). After this each value is in Newtons in the **sensor frame**:
+Multiply per channel by `calibration.axisScales` (Newtons per raw-voltage-ratio unit, ~1e6). After this each value is in Newtons in the **sensor frame** — and this is the final, canonical output of the pipeline:
 
 ```
 X_sensor = in-plane force (along the wall, positive up-slope)
 Z_sensor = normal force (perpendicular to wall surface, positive out toward climber)
-Y_sensor = sideways force (positive right) — never rotated
+Y_sensor = sideways force (positive right)
 ```
 
-### Step 6 — Wall-decline rotation (`applyWallDecline`)
-
-The wall is mounted at angle θ from vertical. The sensor frame is rotated by θ relative to the world frame. [`applyWallDecline`](climbing_wall_website/src/utils/wallGeometry.ts:98) applies a 2D rotation in the X–Z plane for each of the 4 boards:
-
-```
-X_world = X_sensor · cos θ − Z_sensor · sin θ   (true vertical, up)
-Z_world = X_sensor · sin θ + Z_sensor · cos θ   (true horizontal, out)
-Y_world = Y_sensor                               (unchanged)
-```
-
-At θ = 0 the rotation is identity. At the default θ = 16°, a climber hanging vertically reads `~−W` on X and `~0` on Z (as expected).
-
-The active θ is a module-level variable in `wallGeometry.ts`, initialised from `localStorage["cw:wallDeclineDeg"]` (default 16°) before React mounts, so `parseSerialLine` always reads the current value.
+> **No rotation at ingestion.** The wall-decline angle θ is **not** applied in the pipeline. The sensor frame is what gets stored in the live buffer, IndexedDB, and the backend CSV. World-frame X/Z is an opt-in, UI-only rotation applied at render time (see [Display coordinate frame](#display-coordinate-frame)).
 
 ---
 
@@ -99,9 +87,11 @@ The active θ is a module-level variable in `wallGeometry.ts`, initialised from 
 interface SensorReading {
   timestamp: number     // ms since epoch
   sampleNumber: number  // monotonically incrementing
-  values: number[]      // 12 world-frame Newtons, GUI-slot order
+  values: number[]      // 12 sensor-frame Newtons, GUI-slot order
 }
 ```
+
+> **IndexedDB note:** the store version was bumped (v1 → v2) when the canonical frame switched from world to sensor. The upgrade drops any pre-v2 (world-frame) buffer so stale data is never reinterpreted as sensor frame.
 
 3. Every **5 seconds** `allSensorDataRef.current` is auto-saved to **IndexedDB** (`saveSensorData`), so a page reload loses at most 5 s of data.
 4. On mount, `loadSensorData()` restores the last session from IndexedDB automatically.
@@ -119,14 +109,24 @@ Updating React state on every ~100 Hz sample would cause thousands of re-renders
 
 ## Display coordinate frame
 
-All data is stored in **world frame** (X = vertical, Z = horizontal/out). The user can toggle display to **board frame** (sensor frame, X = along wall, Z = normal).
+All data is stored in the canonical **sensor (board) frame** (X = along wall / in-plane, Z = board normal). World frame (X = true vertical, Z = out of wall) is a **derived, opt-in, UI-only** view.
+
+In the **live** view the app cannot know the current physical wall angle, so the user must enter the **current wall tilt θ** in a clearly labeled field and **confirm** it (`"Display in world frame using θ = X°?"`). On confirm the world view is *locked* at that angle and shown as a locked badge; an "unlock" / "return to sensor view" action reverts. This is implemented by [`WorldFrameControl`](climbing_wall_website/src/components/dashboard/WorldFrameControl.tsx) in the toolbar.
+
+For a **recording** the tilt is already known — it was captured into `meta.wall_decline_deg` — so the recordings tab shows a plain **Sensor / World** toggle that rotates by that recorded angle directly. There is no manual entry or confirmation, because the angle is a fixed property of the capture (recordings without a stored angle can only be shown in sensor frame).
 
 [`toDisplayFrameReadings(readings, frame, declineDeg)`](climbing_wall_website/src/utils/wallGeometry.ts:131):
 
-- `"world"` → returns the same array (no copy, memoised consumers skip work)
-- `"board"` → applies `applyWallDecline(values, -θ)` to undo the rotation
+- `"sensor"` → returns the same array (no copy, memoised consumers skip work) — the default
+- `"world"` → applies `applyWallDecline(values, +θ)` to rotate sensor → world
 
-This only changes what the charts show; the stored buffer is always world-frame.
+```
+X_world = X_sensor · cos θ − Z_sensor · sin θ   (true vertical, up)
+Z_world = X_sensor · sin θ + Z_sensor · cos θ   (true horizontal, out)
+Y_world = Y_sensor                               (unchanged)
+```
+
+This only changes what the charts show; the stored buffer is always sensor frame. At θ = 16°, a climber hanging vertically reads `~−W` on X and `~0` on Z in the world view.
 
 ---
 
@@ -134,7 +134,7 @@ This only changes what the charts show; the stored buffer is always world-frame.
 
 ### Overall Force (Force Magnitudes tab)
 
-Euclidean norm per sensor: `||F|| = √(X² + Y² + Z²)`. Rotation-invariant, so the "world vs board" toggle has no effect here.
+Euclidean norm per sensor: `||F|| = √(X² + Y² + Z²)`. Rotation-invariant, so the sensor-vs-world view has no effect here.
 
 ### Force by Direction (Components tab)
 
@@ -149,10 +149,10 @@ Both chart types apply a **5-sample moving average** (`smoothData`) to reduce qu
 When the user clicks Save:
 
 1. [`saveRecordingToBackend(allSensorDataRef.current, label)`](climbing_wall_website/src/utils/recordingApi.ts:27) is called.
-2. POSTs to `POST /api/recordings/save` with `{ label, filename, readings, wall_decline_deg }`.
+2. POSTs to `POST /api/recordings/save` with `{ label, filename, readings, wall_decline_deg }`. `readings` are **sensor-frame** Newtons.
 3. Backend writes a **CSV** (`Timestamp, Sample, S1_X … S4_Z`) and a **`.meta.json`** sidecar:
-   - `id`, `filename`, `created_at`, `sample_count`, `duration_s`, `label`, `wall_decline_deg`
-4. `wall_decline_deg` is the θ active at capture time, so the recording can be displayed in raw board coordinates exactly even if the live θ later changes.
+   - `id`, `filename`, `created_at`, `sample_count`, `duration_s`, `label`, `frame`, `wall_decline_deg`
+4. `frame` is `"sensor"` for new recordings (the CSV holds raw sensor-frame values). `wall_decline_deg` is the wall tilt at capture time — **metadata only**, not baked into the values; it drives the recordings tab's Sensor / World toggle (the world view rotates by exactly this recorded angle).
 
 `GET /api/recordings` returns the 5 most recent recordings (newest first).
 
@@ -186,7 +186,7 @@ User enters body weight (kg) and optionally wall angle. These stay in frontend s
 
 The algorithm (ported from the Pi's `demonstration.py`, Method A):
 
-1. **Global Z projection**: transforms wall-frame forces to a global vertical component using the wall angle:
+1. **Global Z projection**: the hand/foot sums are **sensor (wall) frame** (the buffer is never pre-rotated), which is exactly what this step expects — it transforms them to a global vertical component using the wall angle, correcting for the tilt exactly once:
    ```python
    foot_global_z = foot[:,2]*cos(θ) + foot[:,1]*sin(θ)
    ```
@@ -218,8 +218,9 @@ This bypasses `serialParser` entirely. Mock jump results return a random height 
 
 | File | Role |
 |---|---|
-| [`src/utils/serialParser.ts`](climbing_wall_website/src/utils/serialParser.ts) | Full transform pipeline: remap → sign → offset → scale → wall rotation |
-| [`src/utils/wallGeometry.ts`](climbing_wall_website/src/utils/wallGeometry.ts) | Wall-decline rotation (sensor↔world frame), `toDisplayFrameReadings` |
+| [`src/utils/serialParser.ts`](climbing_wall_website/src/utils/serialParser.ts) | Full transform pipeline: remap → sign → offset → scale (output is sensor frame; **no** rotation) |
+| [`src/utils/wallGeometry.ts`](climbing_wall_website/src/utils/wallGeometry.ts) | Sensor→world rotation helpers (display-only), `toDisplayFrameReadings` |
+| [`src/components/dashboard/WorldFrameControl.tsx`](climbing_wall_website/src/components/dashboard/WorldFrameControl.tsx) | Opt-in world-frame view control (angle entry + confirm + lock) |
 | [`src/hooks/useSensorData.ts`](climbing_wall_website/src/hooks/useSensorData.ts) | Buffer, tare, UI sync, IndexedDB persistence, mock data |
 | [`src/hooks/useJumpTest.ts`](climbing_wall_website/src/hooks/useJumpTest.ts) | Jump state machine, window slicing, backend call |
 | [`src/utils/jumpApi.ts`](climbing_wall_website/src/utils/jumpApi.ts) | Hand/foot summation, `POST /api/jump` |

@@ -17,9 +17,9 @@ export interface RecordingMeta {
   duration_s: number
   label: string
   /**
-   * Wall decline angle θ (degrees) the recording was captured at. Present for
-   * recordings saved after this field was added; used to re-express the data in
-   * raw board (sensor) coordinates exactly. Undefined for older recordings.
+   * Wall tilt angle θ (degrees) the wall was at during this capture. Pure
+   * metadata — the stored CSV values are NOT rotated by it. Used to prefill the
+   * world-frame view's angle field as a convenience.
    */
   wall_decline_deg?: number
 }
@@ -35,9 +35,10 @@ export async function saveRecordingToBackend(
     body: JSON.stringify({
       label: trimmed,           // human-readable display name (stored as-is)
       filename: trimmed,        // used as filename prefix (backend sanitises it)
-      readings,
-      // The θ active at capture time, so the recording can later be shown in raw
-      // board coordinates exactly even if the live θ setting changes.
+      readings,                 // canonical SENSOR-frame Newtons (not rotated)
+      // The wall tilt active at capture time — stored as metadata only, so the
+      // world-frame view can prefill its angle field. The stored values stay
+      // sensor frame regardless of this.
       wall_decline_deg: getWallDeclineDeg(),
     }),
   })

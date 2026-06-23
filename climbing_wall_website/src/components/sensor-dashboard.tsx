@@ -127,19 +127,19 @@ export default function SensorDashboard() {
   }
 
   // --- Step 5: derived values for presentational layer ---
-  // Re-express the live window in the chosen coordinate frame. World (the stored
+  // Re-express the live window in the chosen coordinate frame. Sensor (the stored
   // canonical) returns the same array reference, so this is free unless the user
-  // switches to Board. Board frame undoes the wall-decline rotation at the
-  // current θ. The norm-based charts are rotation-invariant, so only the
-  // directional "Force by Direction" view actually changes.
+  // has locked the world view. World frame applies the wall-decline rotation at
+  // the confirmed angle — purely at the display layer. The norm-based charts are
+  // rotation-invariant, so only the directional "Force by Direction" view changes.
   const displayDataForCharts = useMemo(
     () =>
       toDisplayFrameReadings(
         sensorData.displayData,
         displaySettings.coordinateFrame,
-        displaySettings.wallDeclineDeg,
+        displaySettings.worldViewAngleDeg,
       ),
-    [sensorData.displayData, displaySettings.coordinateFrame, displaySettings.wallDeclineDeg],
+    [sensorData.displayData, displaySettings.coordinateFrame, displaySettings.worldViewAngleDeg],
   )
 
   // Memoised so the options object keeps a stable reference between renders
@@ -228,7 +228,9 @@ export default function SensorDashboard() {
         displaySampleCount={displaySettings.displaySampleCount}
         autoScaleY={displaySettings.autoScaleY}
         yAxisMax={displaySettings.yAxisMax}
-        coordinateFrame={displaySettings.coordinateFrame}
+        worldViewLocked={displaySettings.worldViewLocked}
+        worldViewAngleDeg={displaySettings.worldViewAngleDeg}
+        wallDeclineDeg={displaySettings.wallDeclineDeg}
         onConnectToggle={handleConnectToggle}
         onCollectToggle={sensorData.toggleDataCollection}
         onStartFresh={sensorData.startFreshCollection}
@@ -237,7 +239,8 @@ export default function SensorDashboard() {
         onSampleCountChange={displaySettings.handleSampleCountChange}
         onAutoScaleChange={displaySettings.setAutoScaleY}
         onYAxisMaxChange={(values) => displaySettings.setYAxisMax(values[0])}
-        onCoordinateFrameChange={displaySettings.setCoordinateFrame}
+        onLockWorldView={displaySettings.lockWorldView}
+        onUnlockWorldView={displaySettings.unlockWorldView}
       />
 
       <ConnectionStatus
@@ -286,7 +289,7 @@ export default function SensorDashboard() {
             displaySampleCount={displaySettings.displaySampleCount}
             totalSamples={sensorData.totalSamples}
             chartOptions={chartOptions}
-            wallDeclineDeg={displaySettings.wallDeclineDeg}
+            worldViewAngleDeg={displaySettings.worldViewAngleDeg}
             coordinateFrame={displaySettings.coordinateFrame}
           />
         </TabsContent>
@@ -318,8 +321,6 @@ export default function SensorDashboard() {
             compareMode={compareMode}
             onSetCompareMode={setCompareMode}
             comparison={comparison}
-            coordinateFrame={displaySettings.coordinateFrame}
-            currentWallDeclineDeg={displaySettings.wallDeclineDeg}
           />
         </TabsContent>
       </Tabs>

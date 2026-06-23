@@ -1,5 +1,4 @@
 import { getCalibration } from "./calibration"
-import { applyWallDecline } from "./wallGeometry"
 
 export type ParsedSerialMessage =
   | { type: "sensor"; values: number[]; signedRaw: number[] }
@@ -92,7 +91,11 @@ function applyAxisScales(values: number[]): number[] {
  * the transport layer (useSerialPort) and the domain handlers.
  *
  * For sensor lines we expose two arrays:
- *   - `values`:    the fully-processed forces shown in the GUI.
+ *   - `values`:    the fully-processed SENSOR-frame forces (post remap → sign →
+ *                  offset → scale). This is the canonical frame stored everywhere
+ *                  (live buffer, IndexedDB, backend CSV). The wall-decline angle θ
+ *                  is NOT applied here — world-frame display is an opt-in, UI-only
+ *                  rotation performed at render time (see wallGeometry).
  *   - `signedRaw`: the post-sign, pre-offset, pre-scale values. The calibration
  *                  wizard averages these so its result is independent of the
  *                  offset/scale currently in effect.
@@ -106,13 +109,14 @@ export function parseSerialLine(line: string): ParsedSerialMessage {
     values.every((v) => !isNaN(v) && isFinite(v))
   ) {
     const signedRaw = applyAxisSigns(remapSensorGroups(values))
-    // Per-board calibrated forces in the SENSOR frame (X = in-plane, Z = normal).
+    // Per-board calibrated forces in the SENSOR (board) frame: X = in-plane
+    // (along the wall, up-slope), Z = normal (out of the wall), Y = sideways.
+    // This is the canonical stored frame — the wall-decline rotation is applied
+    // only at display time when the user explicitly opts into the world view.
     const sensorForces = applyAxisScales(applyGroundOffsets(signedRaw))
     return {
       type: "sensor",
-      // Rotate each board's X/Z by the wall decline angle into the WORLD frame
-      // (X = true vertical/up, Z = true horizontal/out). Y is left untouched.
-      values: applyWallDecline(sensorForces),
+      values: sensorForces,
       signedRaw,
     }
   }

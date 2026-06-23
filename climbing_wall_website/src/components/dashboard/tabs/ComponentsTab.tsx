@@ -16,7 +16,8 @@ interface ComponentsTabProps {
   displaySampleCount: number | "all"
   totalSamples: number
   chartOptions: ChartOptions<"line">
-  wallDeclineDeg: number
+  /** The confirmed tilt angle θ the world view is locked at (used in the note). */
+  worldViewAngleDeg: number
   coordinateFrame: CoordinateFrame
 }
 
@@ -91,7 +92,7 @@ export function ComponentsTab({
   displaySampleCount,
   totalSamples,
   chartOptions,
-  wallDeclineDeg,
+  worldViewAngleDeg,
   coordinateFrame,
 }: ComponentsTabProps) {
   const [expandedSensor, setExpandedSensor] = useState<number | null>(null)
@@ -162,20 +163,21 @@ export function ComponentsTab({
           {/* Coordinate-frame note — explains what X/Z mean in the active frame. */}
           {coordinateFrame === "world" ? (
             <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
-              <span className="font-semibold">World coordinates.</span>{" "}
+              <span className="font-semibold">World coordinates (display only).</span>{" "}
               <span className="font-semibold">X</span> (vertical) and{" "}
-              <span className="font-semibold">Z</span> (out of wall) assume the wall is
-              declined <span className="font-semibold">{wallDeclineDeg}°</span> from
-              vertical. Set this in <span className="font-semibold">Calibrate Sensors</span>. Y is unaffected.
+              <span className="font-semibold">Z</span> (out of wall) are derived by
+              rotating the stored sensor data by{" "}
+              <span className="font-semibold">θ = {worldViewAngleDeg}°</span>. Stored data is
+              unchanged. Y is unaffected.
             </div>
           ) : (
             <div className="mt-2 rounded-md border border-slate-300 bg-slate-100 px-3 py-1.5 text-xs text-slate-700">
-              <span className="font-semibold">Board (raw sensor) coordinates.</span>{" "}
+              <span className="font-semibold">Sensor (board) coordinates — default.</span>{" "}
               <span className="font-semibold">X</span> = along the wall (in-plane),{" "}
-              <span className="font-semibold">Z</span> = perpendicular to the board —
-              NOT corrected for the <span className="font-semibold">{wallDeclineDeg}°</span> tilt.
-              Switch to <span className="font-semibold">World</span> for true
-              vertical / out-of-wall forces. Y is the same in both.
+              <span className="font-semibold">Z</span> = perpendicular to the board (the
+              raw, stored frame). Use <span className="font-semibold">View in world
+              frame</span> in the toolbar for tilt-corrected vertical / out-of-wall forces.
+              Y is the same in both.
             </div>
           )}
 

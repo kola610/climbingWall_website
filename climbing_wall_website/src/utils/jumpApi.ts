@@ -27,11 +27,11 @@ export async function computeJumpHeight(
   wallAngleDeg: number,
   samplingRate: number = JUMP_SAMPLING_RATE,
 ): Promise<JumpResult> {
-  // NOTE: since the wall-decline feature, `values` are WORLD-frame forces
-  // (X = vertical, Z = horizontal/out), already corrected for the decline by
-  // serialParser. The backend jump algorithm still applies its own wall-angle
-  // transform, so to avoid double-correcting, the world-frame vertical should be
-  // used directly. Reconciling the two is a known follow-up (out of scope here).
+  // `values` are SENSOR (wall) frame forces — the wall-decline rotation is NOT
+  // baked in. This is exactly what the backend jump algorithm expects: it applies
+  // the wall-angle projection to global vertical itself (using `wallAngleDeg`),
+  // so the forces are corrected for the tilt exactly once. (Before the frame
+  // inversion the buffer was world-frame and this double-corrected.)
   const hand: number[][] = []
   const foot: number[][] = []
   for (const { values: v } of window) {

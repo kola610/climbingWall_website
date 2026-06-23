@@ -70,9 +70,9 @@ def _write_meta(
         "duration_s": round(duration_s, 2),
         "label": label,
     }
-    # The wall decline angle θ the data was captured at. Stored so the frontend
-    # can re-express a recording in raw board (sensor) coordinates exactly, even
-    # if the live θ setting later changes. Omitted for older recordings.
+    # The wall tilt angle θ the data was captured at — metadata only. The stored
+    # values are NOT rotated by it; the frontend uses it to prefill the world-frame
+    # view's angle field. Omitted for older recordings.
     if isinstance(wall_decline_deg, (int, float)):
         meta["wall_decline_deg"] = wall_decline_deg
     with _meta_path(csv_path).open("w", encoding="utf-8") as f:

@@ -1,6 +1,6 @@
 # Calibration Pipeline
 
-Calibration converts raw voltage ratios from the 4 load cell boards into correctly-scaled Newton forces. It must be run once per board. The fitted scales are intrinsic to the sensors and do **not** need re-running when the wall angle θ changes — θ is reapplied live in the measuring pipeline's rotation step (see the [Wall decline angle θ](#wall-decline-angle-θ) section).
+Calibration converts raw voltage ratios from the 4 load cell boards into correctly-scaled Newton forces. It must be run once per board. The fitted scales are intrinsic to the sensors and do **not** need re-running when the wall angle θ changes — θ is only used to interpret the hang split at calibration time and, separately, as an opt-in display rotation (see the [Wall decline angle θ](#wall-decline-angle-θ) section).
 
 ---
 
@@ -26,7 +26,7 @@ Committed default values live in [`src/config/calibration_settings.json`](climbi
 +Z  → out of the wall (toward the climber)
 ```
 
-This is the **sensor frame**. After calibration the measuring pipeline rotates X/Z into **world frame** (see `measuring_pipeline.md`). Calibration is done in sensor frame — the wizard works with sensor-frame raw values.
+This is the **sensor frame**, and it is the canonical frame everything is stored in. World frame (true vertical / out-of-wall) is an **opt-in, display-only** rotation by θ applied at render time (see `measuring_pipeline.md`). Calibration is done in sensor frame — the wizard works with sensor-frame raw values.
 
 ---
 
@@ -48,7 +48,7 @@ Called once on mount inside [`useCalibration`](climbing_wall_website/src/hooks/u
 
 θ is needed **during** hang calibration only to interpret the capture: a hang gives one known number (the total weight W), and θ tells the fit how much of it landed on X (`W·cosθ`) vs Z (`W·sinθ`). So θ entered in the wizard must match the physical wall angle **at calibration time**, or the fitted scales come out wrong.
 
-But the resulting `axisScales` are an **intrinsic sensor property** (Newtons per raw-voltage-ratio unit) and do **not** depend on θ. In the ideal orthogonal-axis model the `cosθ`/`sinθ` factors cancel in the least-squares slope (`scale = Σ(x·f)/Σ(x²)`), so the recovered scale equals the true sensor scale regardless of the angle used. A later θ change is handled automatically by the runtime rotation (`applyWallDecline`, see `measuring_pipeline.md` Step 6), which always reads the current θ — **not** by recalibrating. Recalibrating X & Z after a θ change is only worth considering as a hedge against real-world cross-axis coupling (a second-order non-ideality). Y is unaffected either way.
+But the resulting `axisScales` are an **intrinsic sensor property** (Newtons per raw-voltage-ratio unit) and do **not** depend on θ. In the ideal orthogonal-axis model the `cosθ`/`sinθ` factors cancel in the least-squares slope (`scale = Σ(x·f)/Σ(x²)`), so the recovered scale equals the true sensor scale regardless of the angle used. The stored forces stay in sensor frame; a θ change only affects the opt-in world-frame display rotation (`applyWallDecline`, applied at render time), **not** the stored values or the calibration. Recalibrating X & Z after a θ change is only worth considering as a hedge against real-world cross-axis coupling (a second-order non-ideality). Y is unaffected either way.
 
 ---
 
