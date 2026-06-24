@@ -111,9 +111,10 @@ export function CalibrationModal({
   const [steps, setSteps] = useState<StepState[]>(freshSteps)
   const [capturingStep, setCapturingStep] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
-  // Calibrated axes, keyed "board-axis", shown as green checks. Seeded from the
-  // persisted calibration on open (so a check means "actually calibrated, not on
-  // factory defaults", across sessions) and updated as axes are saved.
+  // Axes calibrated during THIS wizard session, keyed "board-axis", shown as
+  // green checks. Starts empty on every open and is filled only as axes are saved
+  // below — a check therefore means "you calibrated this in this session" and
+  // never carries over from a previously persisted calibration into a new run.
   const [doneAxes, setDoneAxes] = useState<Set<string>>(new Set())
   // Live signed-raw array, for the live readout.
   const [liveSample, setLiveSample] = useState<number[] | null>(null)
@@ -170,15 +171,10 @@ export function CalibrationModal({
         axisScales: [...config.axisScales],
       }
       declineAtOpenRef.current = wallDeclineDeg
-      // Seed green checks from the persisted calibration: any axis that isn't on
-      // factory defaults counts as already calibrated. Reads the current config
-      // at open; intentionally not a dep so live edits don't reset the wizard.
-      const defaults = new Set(findDefaultChannels(config))
-      const calibrated = new Set<string>()
-      for (let i = 0; i < 12; i++) {
-        if (!defaults.has(i)) calibrated.add(`${Math.floor(i / 3)}-${i % 3}`)
-      }
-      setDoneAxes(calibrated)
+      // Green checks are session-local: start every calibration run with none, so
+      // a check only ever means "calibrated in this session" and nothing carries
+      // over from a previously persisted calibration.
+      setDoneAxes(new Set())
       // Re-sync the θ field to the committed value.
       setDeclineInput(String(wallDeclineDeg))
     }
