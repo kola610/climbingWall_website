@@ -13,13 +13,43 @@ export const DEFAULT_CAPTURE_SAMPLES = 150
 /** Abort a capture if no samples arrive within this window (device unplugged). */
 const CAPTURE_TIMEOUT_MS = 8000
 
+/** Rolling window (~1 s at ~100 Hz) backing the live swing / stability readout. */
+const STABILITY_WINDOW = 100
+
+/** Minimum samples before the live stability readout is considered meaningful. */
+const STABILITY_MIN_SAMPLES = 30
+
+/** Result of a capture: the per-channel mean plus the spread that produced it. */
+export interface CaptureResult {
+  /** Per-channel mean over the capture window (length 12, signed-raw units). */
+  avg: number[]
+  /**
+   * Per-channel standard deviation over the same window (length 12, signed-raw
+   * units). A large σ means the load was moving (e.g. a swinging weight) while
+   * it was captured, so the averaged value is less trustworthy.
+   */
+  std: number[]
+}
+
 interface CaptureState {
   remaining: number
   count: number
   sums: number[] // running per-channel sums (length 12)
-  resolve: (avg: number[]) => void
+  sumSqs: number[] // running per-channel sums of squares (length 12)
+  resolve: (result: CaptureResult) => void
   reject: (err: Error) => void
   timer: ReturnType<typeof setTimeout>
+}
+
+/** Finalise a completed capture into per-channel mean + standard deviation. */
+function finalizeCapture(cap: CaptureState): CaptureResult {
+  const avg = cap.sums.map((s) => s / cap.count)
+  const std = cap.sumSqs.map((sq, i) => {
+    // Var = E[x²] − E[x]²; clamp at 0 to absorb floating-point noise.
+    const variance = sq / cap.count - avg[i] * avg[i]
+    return Math.sqrt(Math.max(0, variance))
+  })
+  return { avg, std }
 }
 
 /**
@@ -41,6 +71,15 @@ export function useCalibration() {
   const latestSampleRef = useRef<number[]>(new Array(12).fill(0))
   const captureRef = useRef<CaptureState | null>(null)
 
+  // Ring buffer of the last STABILITY_WINDOW signed-raw samples, fed at full
+  // stream rate so the live "is the weight still swinging?" readout sees the real
+  // oscillation (not the 10 Hz UI poll, which would alias a fast swing).
+  const stabilityBufRef = useRef<number[][]>(
+    Array.from({ length: STABILITY_WINDOW }, () => new Array(12).fill(0)),
+  )
+  const stabilityHeadRef = useRef(0)
+  const stabilityFillRef = useRef(0)
+
   // Load persisted calibration once on mount, then sync UI state.
   useEffect(() => {
     let cancelled = false
@@ -58,19 +97,55 @@ export function useCalibration() {
 
   const feedSample = useCallback((signedRaw: number[]) => {
     latestSampleRef.current = signedRaw
+
+    // Record into the rolling stability buffer (in-place copy, no allocation).
+    const row = stabilityBufRef.current[stabilityHeadRef.current]
+    for (let i = 0; i < 12; i++) row[i] = signedRaw[i] ?? 0
+    stabilityHeadRef.current = (stabilityHeadRef.current + 1) % STABILITY_WINDOW
+    if (stabilityFillRef.current < STABILITY_WINDOW) stabilityFillRef.current += 1
+
     const cap = captureRef.current
     if (!cap) return
-    for (let i = 0; i < cap.sums.length; i++) cap.sums[i] += signedRaw[i] ?? 0
+    for (let i = 0; i < cap.sums.length; i++) {
+      const v = signedRaw[i] ?? 0
+      cap.sums[i] += v
+      cap.sumSqs[i] += v * v
+    }
     cap.count += 1
     cap.remaining -= 1
     if (cap.remaining <= 0) {
       clearTimeout(cap.timer)
       captureRef.current = null
-      cap.resolve(cap.sums.map((s) => s / cap.count))
+      cap.resolve(finalizeCapture(cap))
     }
   }, [])
 
   const getLatestSample = useCallback(() => latestSampleRef.current, [])
+
+  /**
+   * Per-channel standard deviation (signed-raw units) over the most recent ~1 s
+   * of samples — the live signal for "is the weight still swinging?". Returns
+   * null until enough samples have arrived to be meaningful.
+   */
+  const getRecentStds = useCallback((): number[] | null => {
+    const n = Math.min(stabilityFillRef.current, STABILITY_WINDOW)
+    if (n < STABILITY_MIN_SAMPLES) return null
+    const buf = stabilityBufRef.current
+    const sums = new Array(12).fill(0)
+    const sumSqs = new Array(12).fill(0)
+    for (let k = 0; k < n; k++) {
+      const r = buf[k]
+      for (let i = 0; i < 12; i++) {
+        const v = r[i] ?? 0
+        sums[i] += v
+        sumSqs[i] += v * v
+      }
+    }
+    return sums.map((s, i) => {
+      const mean = s / n
+      return Math.sqrt(Math.max(0, sumSqs[i] / n - mean * mean))
+    })
+  }, [])
 
   /**
    * Average the next `sampleCount` signed-raw samples across all 12 channels.
@@ -79,8 +154,8 @@ export function useCalibration() {
    * is already running or no data arrives in time.
    */
   const captureAverages = useCallback(
-    (sampleCount: number = DEFAULT_CAPTURE_SAMPLES): Promise<number[]> =>
-      new Promise<number[]>((resolve, reject) => {
+    (sampleCount: number = DEFAULT_CAPTURE_SAMPLES): Promise<CaptureResult> =>
+      new Promise<CaptureResult>((resolve, reject) => {
         if (captureRef.current) {
           reject(new Error("A capture is already in progress."))
           return
@@ -97,6 +172,7 @@ export function useCalibration() {
           remaining: sampleCount,
           count: 0,
           sums: new Array(12).fill(0),
+          sumSqs: new Array(12).fill(0),
           resolve,
           reject,
           timer,
@@ -157,6 +233,7 @@ export function useCalibration() {
     config,
     feedSample,
     getLatestSample,
+    getRecentStds,
     captureAverages,
     cancelCapture,
     commitChannels,

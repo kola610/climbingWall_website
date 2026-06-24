@@ -10,6 +10,7 @@ import {
   Loader2,
   Triangle,
   Trash2,
+  Activity,
 } from "lucide-react"
 import { SENSOR_NAMES, FORCE_COMPONENTS } from "../../constants/sensor"
 import {
@@ -40,13 +41,25 @@ interface StepState {
   weightKg: string
   /** Full averaged signed-raw array (length 12) captured at this weight. */
   raw: number[] | null
+  /** Per-channel σ (signed-raw) over the capture window — the swing at capture. */
+  std: number[] | null
 }
 
 const DEFAULT_STEPS: StepState[] = [
-  { weightKg: "0", raw: null },
-  { weightKg: "10", raw: null },
-  { weightKg: "20", raw: null },
+  { weightKg: "0", raw: null, std: null },
+  { weightKg: "10", raw: null, std: null },
+  { weightKg: "20", raw: null, std: null },
 ]
+
+/**
+ * Swing threshold. If the active axis's standard deviation over the capture
+ * window (or the live ~1 s window) exceeds this many Newtons, the weight is
+ * treated as "still swinging quite a lot" and the user is warned — but never
+ * blocked from capturing or saving. The raw σ is converted to Newtons with the
+ * channel's current scale, so this is a physical, scale-independent threshold.
+ * Tune to your hardware's noise floor.
+ */
+const SWING_WARN_N = 5
 
 /**
  * Since Method A the live readings are raw voltage ratios (~1e-6) and the scales
@@ -84,6 +97,7 @@ export function CalibrationModal({
   const {
     config,
     getLatestSample,
+    getRecentStds,
     captureAverages,
     cancelCapture,
     commitChannels,
@@ -103,6 +117,8 @@ export function CalibrationModal({
   const [doneAxes, setDoneAxes] = useState<Set<string>>(new Set())
   // Live signed-raw array, for the live readout.
   const [liveSample, setLiveSample] = useState<number[] | null>(null)
+  // Live per-channel σ over the last ~1 s, for the swing / stability readout.
+  const [liveStds, setLiveStds] = useState<number[] | null>(null)
   // Transient "saved" confirmation shown after a successful save.
   const [savedNotice, setSavedNotice] = useState<string | null>(null)
   // When finishing with axes still on factory defaults, a confirm page is shown
@@ -176,15 +192,19 @@ export function CalibrationModal({
     return () => clearTimeout(id)
   }, [savedNotice])
 
-  // Poll the live signed-raw array while on the step page.
+  // Poll the live signed-raw array + recent-σ (swing) while on the step page.
   useEffect(() => {
     if (stage !== "steps") {
       setLiveSample(null)
+      setLiveStds(null)
       return
     }
-    const id = setInterval(() => setLiveSample(getLatestSample()), 100)
+    const id = setInterval(() => {
+      setLiveSample(getLatestSample())
+      setLiveStds(getRecentStds())
+    }, 100)
     return () => clearInterval(id)
-  }, [stage, getLatestSample])
+  }, [stage, getLatestSample, getRecentStds])
 
   const handleClose = useCallback(() => {
     if (capturingStep !== null) cancelCapture()
@@ -261,7 +281,7 @@ export function CalibrationModal({
   }
 
   const updateWeight = (idx: number, value: string) => {
-    setSteps((prev) => prev.map((s, i) => (i === idx ? { ...s, weightKg: value, raw: null } : s)))
+    setSteps((prev) => prev.map((s, i) => (i === idx ? { ...s, weightKg: value, raw: null, std: null } : s)))
   }
 
   const captureStep = async (idx: number) => {
@@ -269,8 +289,8 @@ export function CalibrationModal({
     setError(null)
     setCapturingStep(idx)
     try {
-      const avg = await captureAverages()
-      setSteps((prev) => prev.map((s, i) => (i === idx ? { ...s, raw: avg } : s)))
+      const { avg, std } = await captureAverages()
+      setSteps((prev) => prev.map((s, i) => (i === idx ? { ...s, raw: avg, std } : s)))
     } catch (err) {
       setError(err instanceof Error ? err.message : "Capture failed.")
     } finally {
@@ -280,6 +300,26 @@ export function CalibrationModal({
 
   const weights = steps.map((s) => parseFloat(s.weightKg) || 0)
   const allCaptured = steps.every((s) => s.raw !== null)
+
+  // Swing magnitude (Newtons) for the channels relevant to the active mode, from
+  // a per-channel σ array: convert raw σ → N with the current scale and take the
+  // worst axis. Drives both the live readout and the per-capture "swung" flags.
+  const swingNFor = (std: number[] | null): number | null => {
+    if (!std) return null
+    const idxs = mode === "hang" ? [xIdx, zIdx] : [yIdx]
+    let maxN = 0
+    for (const idx of idxs) {
+      if (idx === null) continue
+      maxN = Math.max(maxN, Math.abs(std[idx]) * Math.abs(config.axisScales[idx]))
+    }
+    return maxN
+  }
+  const liveSwingN = swingNFor(liveStds)
+  const liveSwinging = liveSwingN !== null && liveSwingN > SWING_WARN_N
+  const anyStepSwung = steps.some((s) => {
+    const n = swingNFor(s.std)
+    return n !== null && n > SWING_WARN_N
+  })
 
   // θ too small → a vertical hang loads the normal (Z) axis by ~W·sinθ ≈ 0, so Z
   // can't be calibrated from a hang. Block hang calibration in that case.
@@ -626,25 +666,41 @@ export function CalibrationModal({
         {/* ── Stage: Step runner ── */}
         {stage === "steps" && board !== null && mode !== null && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <p className="text-sm">
                 Calibrating{" "}
                 <span className="font-semibold">
                   {boardName} · {mode === "hang" ? "X & Z (hang)" : "Y"}
                 </span>
               </p>
-              <div className="rounded-md bg-muted px-3 py-1 text-sm">
-                Live raw:{" "}
-                {mode === "hang" ? (
-                  <span className="font-mono font-semibold">
-                    X {liveX === null ? "—" : fmtRaw(liveX)} · Z{" "}
-                    {liveZ === null ? "—" : fmtRaw(liveZ)}
-                  </span>
-                ) : (
-                  <span className="font-mono font-semibold">
-                    {liveY === null ? "—" : fmtRaw(liveY)}
+              <div className="flex items-center gap-2">
+                {/* Live swing / stability readout for the active axis. */}
+                {liveSwingN !== null && (
+                  <span
+                    className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium ${
+                      liveSwinging
+                        ? "bg-amber-100 text-amber-800"
+                        : "bg-green-100 text-green-700"
+                    }`}
+                    title="Standard deviation of the live force over the last ~1 s. High = the weight is still moving."
+                  >
+                    <Activity className="h-3.5 w-3.5" />
+                    {liveSwinging ? `Swinging ±${liveSwingN.toFixed(0)} N` : "Steady"}
                   </span>
                 )}
+                <div className="rounded-md bg-muted px-3 py-1 text-sm">
+                  Live raw:{" "}
+                  {mode === "hang" ? (
+                    <span className="font-mono font-semibold">
+                      X {liveX === null ? "—" : fmtRaw(liveX)} · Z{" "}
+                      {liveZ === null ? "—" : fmtRaw(liveZ)}
+                    </span>
+                  ) : (
+                    <span className="font-mono font-semibold">
+                      {liveY === null ? "—" : fmtRaw(liveY)}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -666,8 +722,24 @@ export function CalibrationModal({
               )}
             </div>
 
+            {/* Live swing warning — non-blocking; the user may still capture. */}
+            {liveSwinging && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-800">
+                <Activity className="mt-0.5 h-4 w-4 shrink-0 animate-pulse" />
+                <span>
+                  The weight is still swinging (±{liveSwingN!.toFixed(0)} N on the{" "}
+                  {mode === "hang" ? "X/Z" : "Y"} axis over the last second). Let it
+                  settle for a cleaner capture — capturing now still works, it'll just
+                  be noisier.
+                </span>
+              </div>
+            )}
+
             <div className="space-y-2">
-              {steps.map((step, i) => (
+              {steps.map((step, i) => {
+                const stepSwingN = swingNFor(step.std)
+                const stepSwung = stepSwingN !== null && stepSwingN > SWING_WARN_N
+                return (
                 <div
                   key={i}
                   className="flex items-center gap-3 rounded-lg border bg-muted/20 p-3"
@@ -685,19 +757,30 @@ export function CalibrationModal({
                     <span className="text-sm text-muted-foreground">kg</span>
                   </div>
                   <div className="ml-auto flex items-center gap-3">
-                    <span className="min-w-[8rem] text-right font-mono text-xs">
-                      {step.raw === null ? (
-                        <span className="text-muted-foreground">not captured</span>
-                      ) : mode === "hang" ? (
-                        <>
-                          X {fmtRaw((step.raw as number[])[xIdx as number])}
-                          <br />
-                          Z {fmtRaw((step.raw as number[])[zIdx as number])}
-                        </>
-                      ) : (
-                        fmtRaw((step.raw as number[])[yIdx as number])
+                    <div className="flex min-w-[8rem] flex-col items-end gap-0.5">
+                      <span className="text-right font-mono text-xs">
+                        {step.raw === null ? (
+                          <span className="text-muted-foreground">not captured</span>
+                        ) : mode === "hang" ? (
+                          <>
+                            X {fmtRaw((step.raw as number[])[xIdx as number])}
+                            <br />
+                            Z {fmtRaw((step.raw as number[])[zIdx as number])}
+                          </>
+                        ) : (
+                          fmtRaw((step.raw as number[])[yIdx as number])
+                        )}
+                      </span>
+                      {/* Flag a capture taken while the weight was swinging. */}
+                      {stepSwung && (
+                        <span
+                          className="flex items-center gap-1 text-[11px] font-medium text-amber-700"
+                          title="This capture was averaged while the weight was moving — recapture once it settles for a cleaner value."
+                        >
+                          <Activity className="h-3 w-3" /> swung ±{stepSwingN!.toFixed(0)} N
+                        </span>
                       )}
-                    </span>
+                    </div>
                     <Button
                       size="sm"
                       variant={step.raw === null ? "default" : "outline"}
@@ -718,7 +801,8 @@ export function CalibrationModal({
                     </Button>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
 
             {/* Result — hang (X & Z) */}
@@ -782,6 +866,17 @@ export function CalibrationModal({
                   {yForceDir === -1 ? ", negative because pulled left (−Y)" : ""}).
                 </p>
               </div>
+            )}
+
+            {/* Non-blocking reminder if any saved capture was noisy from swinging. */}
+            {anyStepSwung && (
+              <p className="flex items-start gap-1.5 text-xs text-amber-700">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  One or more captures were taken while the weight was swinging —
+                  recapture once it settles for best accuracy. You can still save.
+                </span>
+              </p>
             )}
 
             <div className="flex justify-end gap-2 pt-1">
