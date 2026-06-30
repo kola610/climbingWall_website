@@ -22,7 +22,6 @@ function buildDisplaySlice(
 
 interface ConnectionDeps {
   isConnected: boolean
-  sendCommand: (cmd: string) => Promise<void>
   mockModeActive: React.MutableRefObject<boolean>
 }
 
@@ -33,21 +32,23 @@ interface DisplaySettings {
 /**
  * Manages the full sensor data pipeline:
  *  - High-frequency ingestion into a mutable ref buffer (no re-renders per sample).
- *  - Tare / calibration via captured offset values.
  *  - Throttled UI sync (~20 fps) from the buffer to React state.
  *  - Mock data generation when no hardware is connected.
+ *
+ * Zeroing/tare is NOT done here: incoming `values` are already calibrated and
+ * zero-subtracted upstream in serialParser (sign → runtime offset → scale), so
+ * this hook stores them verbatim. The runtime offset is owned by useTareOffset.
  *
  * Display-window logic (how many samples to show, auto-scale) is driven by
  * the `DisplaySettings` params so this hook stays decoupled from the settings UI.
  */
 export function useSensorData(
-  { isConnected, sendCommand, mockModeActive }: ConnectionDeps,
+  { isConnected, mockModeActive }: ConnectionDeps,
   { displaySampleCount }: DisplaySettings,
 ) {
   const [isCollecting, setIsCollecting] = useState(false)
   const [totalSamples, setTotalSamples] = useState(0)
   const [displayData, setDisplayData] = useState<SensorReading[]>([])
-  const [calibrationMessage, setCalibrationMessage] = useState<string | null>(null)
 
   // --- mutable refs (never trigger re-renders) ---
   const isCollectingRef = useRef(false)
@@ -56,7 +57,6 @@ export function useSensorData(
   const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const autoSaveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const mockDataIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const tareOffsetsRef = useRef<number[]>(new Array(12).fill(0))
 
   // Mirrors of the display-settings props — kept current so interval callbacks
   // always read the latest values without stale-closure issues.
@@ -127,11 +127,10 @@ export function useSensorData(
 
   const addSensorReading = useCallback((values: number[]) => {
     const sample = sampleCounterRef.current++
-    const taredValues = values.map((v, i) => v - tareOffsetsRef.current[i])
     allSensorDataRef.current.push({
       timestamp: Date.now(),
       sampleNumber: sample,
-      values: taredValues,
+      values,
     })
   }, [])
 
@@ -207,27 +206,6 @@ export function useSensorData(
     }
   }, [isConnected, mockModeActive, startMockData])
 
-  const calibrateDevice = useCallback(async () => {
-    const latestData = allSensorDataRef.current
-    if (latestData.length > 0) {
-      tareOffsetsRef.current = [...latestData[latestData.length - 1].values]
-    } else {
-      tareOffsetsRef.current = new Array(12).fill(0)
-    }
-
-    if (isConnected) {
-      try {
-        await sendCommand("calibrate\n")
-      } catch (err) {
-        console.error("Calibration error:", err)
-        return
-      }
-    }
-
-    setCalibrationMessage("System calibrated — all force values tared to zero.")
-    setTimeout(() => setCalibrationMessage(null), 3000)
-  }, [isConnected, sendCommand])
-
   // Cleanup on unmount — persist whatever we have so nothing is lost.
   useEffect(() => {
     return () => {
@@ -245,12 +223,10 @@ export function useSensorData(
     isCollectingRef,
     totalSamples,
     displayData,
-    calibrationMessage,
     allSensorDataRef,
     addSensorReading,
     toggleDataCollection,
     startFreshCollection,
-    calibrateDevice,
     stopCollection,
   }
 }

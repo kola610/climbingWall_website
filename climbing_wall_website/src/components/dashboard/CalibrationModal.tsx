@@ -167,7 +167,6 @@ export function CalibrationModal({
       // session's changes.
       configAtOpenRef.current = {
         axisSigns: [...config.axisSigns],
-        groundOffsets: [...config.groundOffsets],
         axisScales: [...config.axisScales],
       }
       declineAtOpenRef.current = wallDeclineDeg
@@ -348,13 +347,13 @@ export function CalibrationModal({
     if (board === null) return
     if (mode === "hang" && hangResult && xIdx !== null && zIdx !== null) {
       commitChannels([
-        { idx: xIdx, offset: hangResult.x.offset, scale: hangResult.x.scale },
-        { idx: zIdx, offset: hangResult.z.offset, scale: hangResult.z.scale },
+        { idx: xIdx, scale: hangResult.x.scale },
+        { idx: zIdx, scale: hangResult.z.scale },
       ])
       setDoneAxes((prev) => new Set(prev).add(`${board}-0`).add(`${board}-2`))
       setSavedNotice(`${SENSOR_NAMES[board]} · X & Z calibrated and saved.`)
     } else if (mode === "y" && yResult && yIdx !== null) {
-      commitChannels([{ idx: yIdx, offset: yResult.offset, scale: yResult.scale }])
+      commitChannels([{ idx: yIdx, scale: yResult.scale }])
       setDoneAxes((prev) => new Set(prev).add(`${board}-1`))
       setSavedNotice(`${SENSOR_NAMES[board]} · Y calibrated and saved.`)
     } else {
@@ -380,16 +379,13 @@ export function CalibrationModal({
     axes: FORCE_COMPONENTS.filter((_, a) => defaultChannels.includes(b * 3 + a)),
   })).filter((entry) => entry.axes.length > 0)
 
-  // Axes calibrated during THIS session (config differs from the open snapshot) —
+  // Axes calibrated during THIS session (scale differs from the open snapshot) —
   // these are what "Exit & discard" rolls back. Grouped for the red confirm page.
   const snapshot = configAtOpenRef.current
   const sessionChangedChannels: number[] = []
   if (snapshot) {
     for (let i = 0; i < 12; i++) {
-      if (
-        config.axisScales[i] !== snapshot.axisScales[i] ||
-        config.groundOffsets[i] !== snapshot.groundOffsets[i]
-      ) {
+      if (config.axisScales[i] !== snapshot.axisScales[i]) {
         sessionChangedChannels.push(i)
       }
     }
@@ -487,8 +483,11 @@ export function CalibrationModal({
               <li>Review the result and save.</li>
             </ol>
             <p className="text-xs text-muted-foreground">
-              Saved calibration applies immediately, persists across reloads, and is
-              written to <code>calibration_settings.json</code>.
+              This saves each axis's <span className="font-medium">scale</span> (and the
+              fixed axis switches) to <code>calibration_settings.json</code> — it applies
+              immediately and persists across reloads. Zeroing is no longer part of
+              calibration: use the <span className="font-medium">“Zero Sensors”</span>{" "}
+              button on the toolbar to set the zero point live before a recording.
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <Button onClick={() => setStage("angle")}>Start Calibration</Button>
@@ -640,7 +639,6 @@ export function CalibrationModal({
                 <span className="text-lg font-bold">Y — sideways</span>
                 <span className="text-[11px] text-muted-foreground">push left / right</span>
                 <div className="text-center text-[11px] leading-tight text-muted-foreground">
-                  <div>offset {fmtRaw(config.groundOffsets[yIdx])}</div>
                   <div>scale {fmtScale(config.axisScales[yIdx])}</div>
                 </div>
                 {doneAxes.has(`${board}-1`) && (
@@ -811,10 +809,6 @@ export function CalibrationModal({
                   <div className="rounded bg-background/60 p-2">
                     <div className="mb-1 font-semibold">X (vertical)</div>
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">offset</span>
-                      <span className="font-mono">{fmtRaw(hangResult.x.offset)}</span>
-                    </div>
-                    <div className="flex justify-between">
                       <span className="text-muted-foreground">scale</span>
                       <span className="font-mono">{fmtScale(hangResult.x.scale)}</span>
                     </div>
@@ -822,15 +816,15 @@ export function CalibrationModal({
                   <div className="rounded bg-background/60 p-2">
                     <div className="mb-1 font-semibold">Z (out of wall)</div>
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">offset</span>
-                      <span className="font-mono">{fmtRaw(hangResult.z.offset)}</span>
-                    </div>
-                    <div className="flex justify-between">
                       <span className="text-muted-foreground">scale</span>
                       <span className="font-mono">{fmtScale(hangResult.z.scale)}</span>
                     </div>
                   </div>
                 </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Only the scale is saved. The zero point is set live with the “Zero
+                  Sensors” button, not stored here.
+                </p>
                 <p className="mt-2 text-xs text-green-700">
                   At {steps[1].weightKg} kg the along-wall axis sees ~
                   {(Math.cos((declineDeg * Math.PI) / 180) * w1 * GRAVITY).toFixed(0)} N and
@@ -845,16 +839,16 @@ export function CalibrationModal({
             {yResult && (
               <div className="rounded-lg border border-green-300 bg-green-50 p-4">
                 <p className="mb-2 text-sm font-semibold text-green-800">Computed calibration</p>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div className="flex justify-between rounded bg-background/60 px-3 py-1.5">
-                    <span className="text-muted-foreground">Offset</span>
-                    <span className="font-mono font-semibold">{fmtRaw(yResult.offset)}</span>
-                  </div>
+                <div className="grid grid-cols-1 gap-2 text-sm">
                   <div className="flex justify-between rounded bg-background/60 px-3 py-1.5">
                     <span className="text-muted-foreground">Scale (N/raw)</span>
                     <span className="font-mono font-semibold">{fmtScale(yResult.scale)}</span>
                   </div>
                 </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Only the scale is saved. The zero point is set live with the “Zero
+                  Sensors” button, not stored here.
+                </p>
                 <p className="mt-2 text-xs text-green-700">
                   At {steps[1].weightKg} kg this reads ~
                   {(((steps[1].raw as number[])[yIdx as number] - yResult.offset) * yResult.scale).toFixed(0)}{" "}

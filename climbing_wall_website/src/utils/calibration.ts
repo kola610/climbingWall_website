@@ -3,7 +3,8 @@ import defaultSettings from "../config/calibration_settings.json"
 /**
  * Runtime calibration store.
  *
- * The transform in `serialParser.ts` needs per-axis sign / offset / scale values.
+ * The transform in `serialParser.ts` needs per-axis sign and scale values (the
+ * zero offset is handled separately at runtime — see runtimeOffset.ts).
  * Historically these were hardcoded `as const` arrays that required a source edit
  * and rebuild to change. This module makes them a live, persistable store so the
  * in-app calibration wizard can update them at runtime.
@@ -13,12 +14,16 @@ import defaultSettings from "../config/calibration_settings.json"
  *   2. localStorage  (works in expo / offline mode with no backend)
  *   3. the committed JSON import below (the build-time default)
  *
- * All three arrays are length-12, in GUI-slot order
+ * Both arrays are length-12, in GUI-slot order
  * [Left Hand, Right Hand, Left Foot, Right Foot] × (X, Y, Z).
+ *
+ * NOTE: the zero offset is deliberately NOT here. Offsets are no longer saved at
+ * calibration time; they are computed at runtime (see runtimeOffset.ts / the
+ * "Zero Sensors" tare), keeping the persisted calibration to the two things that
+ * genuinely belong with the hardware: axis switches and scales.
  */
 export interface CalibrationConfig {
   axisSigns: number[]
-  groundOffsets: number[]
   axisScales: number[]
 }
 
@@ -60,7 +65,6 @@ export const CALIBRATION_FORCE_DIRECTION: number[] = [
 function clone(cfg: CalibrationConfig): CalibrationConfig {
   return {
     axisSigns: [...cfg.axisSigns],
-    groundOffsets: [...cfg.groundOffsets],
     axisScales: [...cfg.axisScales],
   }
 }
@@ -82,21 +86,20 @@ export function setCalibration(cfg: CalibrationConfig): void {
 }
 
 /**
- * Flat channel indices (board*3 + axis, GUI-slot order) whose offset AND scale
- * still equal the built-in defaults — i.e. axes that were never individually
- * calibrated and therefore fall back to factory default values. The calibration
- * wizard uses this to warn the user before they finish with axes still on
- * defaults. A calibrated axis always carries a computed offset/scale that differs
- * from the seed, so exact equality is a reliable "untouched" test.
+ * Flat channel indices (board*3 + axis, GUI-slot order) whose scale still equals
+ * the built-in default — i.e. axes that were never individually calibrated and
+ * therefore fall back to the factory default scale. The calibration wizard uses
+ * this to warn the user before they finish with axes still on defaults. A
+ * calibrated axis always carries a computed scale that differs from the seed, so
+ * exact equality is a reliable "untouched" test. (The zero offset is no longer
+ * part of the persisted calibration, so it plays no role here — see
+ * runtimeOffset.ts.)
  */
 export function findDefaultChannels(config: CalibrationConfig): number[] {
   const def = defaultCalibration()
   const out: number[] = []
   for (let i = 0; i < 12; i++) {
-    if (
-      config.axisScales[i] === def.axisScales[i] &&
-      config.groundOffsets[i] === def.groundOffsets[i]
-    ) {
+    if (config.axisScales[i] === def.axisScales[i]) {
       out.push(i)
     }
   }
@@ -178,7 +181,7 @@ const BACKEND_BASE_URL = import.meta.env.VITE_BACKEND_URL ?? ""
 function isValidConfig(value: unknown): value is CalibrationConfig {
   if (typeof value !== "object" || value === null) return false
   const cfg = value as Record<string, unknown>
-  return (["axisSigns", "groundOffsets", "axisScales"] as const).every(
+  return (["axisSigns", "axisScales"] as const).every(
     (key) =>
       Array.isArray(cfg[key]) &&
       (cfg[key] as unknown[]).length === 12 &&

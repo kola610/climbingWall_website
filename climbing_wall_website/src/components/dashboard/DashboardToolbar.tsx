@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import { SAMPLE_COUNT_OPTIONS } from "../../constants/sensor"
 import { WorldFrameControl } from "./WorldFrameControl"
+import { TareControl } from "./TareControl"
 
 interface DashboardToolbarProps {
   connected: boolean
@@ -38,6 +39,11 @@ interface DashboardToolbarProps {
   worldViewAngleDeg: number
   /** Prefill for the world-view angle field (the calibration θ). */
   wallDeclineDeg: number
+  /** Runtime zero (tare) state + actions — see useTareOffset. */
+  zeroedAt: number | null
+  canTare: boolean
+  onTare: () => void
+  onClearZero: () => void
   onSampleCountChange: (value: string) => void
   onAutoScaleChange: (checked: boolean) => void
   onYAxisMaxChange: (values: number[]) => void
@@ -73,6 +79,10 @@ export function DashboardToolbar({
   worldViewLocked,
   worldViewAngleDeg,
   wallDeclineDeg,
+  zeroedAt,
+  canTare,
+  onTare,
+  onClearZero,
   onSampleCountChange,
   onAutoScaleChange,
   onYAxisMaxChange,
@@ -290,7 +300,16 @@ export function DashboardToolbar({
             onUnlock={onUnlockWorldView}
           />
 
-          {/* 3. Calibrate Sensors (per-board scale/offset wizard) */}
+          {/* Zero Sensors — set the runtime zero (tare) on demand. Separate from
+              calibration: this is the volatile zero, not a saved scale. */}
+          <TareControl
+            zeroedAt={zeroedAt}
+            canTare={canTare}
+            onTare={onTare}
+            onClearZero={onClearZero}
+          />
+
+          {/* 3. Calibrate Sensors (per-board scale wizard) */}
           <Button
             onClick={onOpenCalibration}
             variant="outline"

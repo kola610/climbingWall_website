@@ -19,6 +19,7 @@ import { useJumpTest } from "../hooks/useJumpTest"
 import { useDisplaySettings } from "../hooks/useDisplaySettings"
 import { useComparisonData } from "../hooks/useComparisonData"
 import { useCalibration } from "../hooks/useCalibration"
+import { useTareOffset } from "../hooks/useTareOffset"
 
 import { parseSerialLine } from "../utils/serialParser"
 import { exportToCsv } from "../utils/csvExport"
@@ -70,6 +71,7 @@ export default function SensorDashboard() {
 
   const [showCalibration, setShowCalibration] = useState(false)
   const calibration = useCalibration()
+  const tare = useTareOffset()
 
   // --- Step 1: stable dispatcher refs ---
   // These refs break the circular dependency between useSerialPort (which needs
@@ -77,12 +79,16 @@ export default function SensorDashboard() {
   // They are updated every render so hook implementations never go stale.
   const addSensorReadingRef = useRef<((values: number[]) => void) | null>(null)
   const calibrationSinkRef = useRef<((signedRaw: number[]) => void) | null>(null)
+  const tareSinkRef = useRef<((signedRaw: number[]) => void) | null>(null)
 
   const handleSerialLine = useCallback((line: string) => {
     const msg = parseSerialLine(line)
     if (msg.type === "sensor") {
       addSensorReadingRef.current?.(msg.values)
+      // Both the calibration wizard and the runtime tare average signed-raw
+      // (pre-offset, pre-scale) samples, so they each get the raw stream.
       calibrationSinkRef.current?.(msg.signedRaw)
+      tareSinkRef.current?.(msg.signedRaw)
     }
     // Jump height is no longer reported over serial — it is computed from the
     // calibrated buffer on jump-finish (see useJumpTest / backend /api/jump).
@@ -96,7 +102,6 @@ export default function SensorDashboard() {
   const sensorData = useSensorData(
     {
       isConnected: serial.connected,
-      sendCommand: serial.sendCommand,
       mockModeActive: serial.mockModeActive,
     },
     {
@@ -114,6 +119,7 @@ export default function SensorDashboard() {
   // --- Step 3: keep dispatcher refs current ---
   addSensorReadingRef.current = sensorData.addSensorReading
   calibrationSinkRef.current = calibration.feedSample
+  tareSinkRef.current = tare.feedSample
 
   // --- Step 4: orchestrated actions ---
   const handleConnectToggle = async () => {
@@ -199,12 +205,6 @@ export default function SensorDashboard() {
         </Alert>
       )}
 
-      {sensorData.calibrationMessage && (
-        <Alert className="border-green-300 bg-green-50 text-green-800">
-          <AlertDescription>{sensorData.calibrationMessage}</AlertDescription>
-        </Alert>
-      )}
-
       {saveStatusMessage && (
         <Alert className="border-green-300 bg-green-50 text-green-800">
           <AlertDescription>{saveStatusMessage}</AlertDescription>
@@ -231,6 +231,10 @@ export default function SensorDashboard() {
         worldViewLocked={displaySettings.worldViewLocked}
         worldViewAngleDeg={displaySettings.worldViewAngleDeg}
         wallDeclineDeg={displaySettings.wallDeclineDeg}
+        zeroedAt={tare.zeroedAt}
+        canTare={tare.canTare}
+        onTare={tare.tare}
+        onClearZero={tare.clearZero}
         onConnectToggle={handleConnectToggle}
         onCollectToggle={sensorData.toggleDataCollection}
         onStartFresh={sensorData.startFreshCollection}

@@ -1,4 +1,5 @@
 import { getCalibration } from "./calibration"
+import { getRuntimeOffset } from "./runtimeOffset"
 
 export type ParsedSerialMessage =
   | { type: "sensor"; values: number[]; signedRaw: number[] }
@@ -12,7 +13,7 @@ export type ParsedSerialMessage =
  * As of the Method-A migration the Pi streams RAW voltage ratios (tiny, ~1e-6),
  * not Newtons — ALL calibration now happens here. The transform pipeline below
  * (remap -> sign -> offset -> scale) is structurally unchanged; only the meaning
- * of the stored constants changed (see applyGroundOffsets / applyAxisScales).
+ * of the stored constants changed (see applyRuntimeOffset / applyAxisScales).
  *
  * The device streams the four sensor groups (3 values each). The raw group ->
  * body-part wiring was verified empirically by moving each sensor:
@@ -55,22 +56,24 @@ function applyAxisSigns(values: number[]): number[] {
 }
 
 /**
- * Ground/zero offset per axis, applied AFTER applyAxisSigns so the entries are in
+ * Zero offset per axis, applied AFTER applyAxisSigns so the entries are in
  * GUI-slot order: [Left Hand, Right Hand, Left Foot, Right Foot], each as (X, Y, Z).
  *
- * Since Method A these are the zero-load RAW voltage ratios the hardware reports
- * when no load is applied (tiny ~1e-6 numbers, in signed-raw space). They are
- * subtracted from every incoming sample (BEFORE the axis scale) so the displayed
- * forces are zero-centred at rest. The calibration wizard sets each axis's offset
- * to the averaged signed-raw reading captured at 0 kg.
+ * These are the zero-load RAW voltage ratios (tiny ~1e-6 numbers, in signed-raw
+ * space) subtracted from every incoming sample BEFORE the axis scale, so forces
+ * read zero at rest. The offset is NO LONGER part of the persisted calibration:
+ * it is the volatile, runtime-computed tare from `runtimeOffset.ts`, set by the
+ * user with the "Zero Sensors" button (see useTareOffset). Until a zero is taken
+ * the offset is all-zeros (readings are simply un-tared). The pipeline position
+ * is identical to the old persisted ground offset — only the source changed.
  */
-function applyGroundOffsets(values: number[]): number[] {
-  const { groundOffsets } = getCalibration()
-  return values.map((v, i) => v - groundOffsets[i])
+function applyRuntimeOffset(values: number[]): number[] {
+  const offset = getRuntimeOffset()
+  return values.map((v, i) => v - offset[i])
 }
 
 /**
- * Per-axis scale factor, applied AFTER applyGroundOffsets so the entries are in
+ * Per-axis scale factor, applied AFTER applyRuntimeOffset so the entries are in
  * GUI-slot order: [Left Hand, Right Hand, Left Foot, Right Foot], each as (X, Y, Z).
  *
  * Each scale maps (raw − offset) to a force in Newtons. Since Method A the input
@@ -113,7 +116,7 @@ export function parseSerialLine(line: string): ParsedSerialMessage {
     // (along the wall, up-slope), Z = normal (out of the wall), Y = sideways.
     // This is the canonical stored frame — the wall-decline rotation is applied
     // only at display time when the user explicitly opts into the world view.
-    const sensorForces = applyAxisScales(applyGroundOffsets(signedRaw))
+    const sensorForces = applyAxisScales(applyRuntimeOffset(signedRaw))
     return {
       type: "sensor",
       values: sensorForces,

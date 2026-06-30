@@ -22,7 +22,9 @@ CALIB_PATH = (
     / "config"
     / "calibration_settings.json"
 )
-CALIB_KEYS = ("axisSigns", "groundOffsets", "axisScales")
+# Only axis switches and scales are persisted. The zero offset is computed at
+# runtime in the frontend (a volatile tare), never saved here.
+CALIB_KEYS = ("axisSigns", "axisScales")
 
 CSV_HEADERS = [
     "Timestamp",

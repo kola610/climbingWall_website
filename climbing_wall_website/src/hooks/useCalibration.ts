@@ -191,20 +191,19 @@ export function useCalibration() {
   }, [])
 
   /**
-   * Persist freshly computed offset/scale for one or more channels in a single
-   * write (e.g. a hang calibrates X and Z together). `idx` is the flat channel
-   * index (boardIdx * 3 + axisIdx).
+   * Persist a freshly computed scale for one or more channels in a single write
+   * (e.g. a hang calibrates X and Z together). `idx` is the flat channel index
+   * (boardIdx * 3 + axisIdx). Only the scale is saved — the zero offset is now a
+   * volatile runtime tare (see runtimeOffset.ts), never written to the config.
    */
   const commitChannels = useCallback(
-    (updates: { idx: number; offset: number; scale: number }[]) => {
+    (updates: { idx: number; scale: number }[]) => {
       const current = getCalibration()
       const next: CalibrationConfig = {
         axisSigns: [...current.axisSigns],
-        groundOffsets: [...current.groundOffsets],
         axisScales: [...current.axisScales],
       }
       for (const u of updates) {
-        next.groundOffsets[u.idx] = u.offset
         next.axisScales[u.idx] = u.scale
       }
       persistCalibration(next)
