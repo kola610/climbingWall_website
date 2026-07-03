@@ -20,6 +20,7 @@ import { useDisplaySettings } from "../hooks/useDisplaySettings"
 import { useComparisonData } from "../hooks/useComparisonData"
 import { useCalibration } from "../hooks/useCalibration"
 import { useTareOffset } from "../hooks/useTareOffset"
+import { useCalibrationProfiles } from "../hooks/useCalibrationProfiles"
 
 import { parseSerialLine } from "../utils/serialParser"
 import { exportToCsv } from "../utils/csvExport"
@@ -29,6 +30,7 @@ import { toDisplayFrameReadings } from "../utils/wallGeometry"
 
 import { DashboardToolbar } from "./dashboard/DashboardToolbar"
 import { CalibrationModal } from "./dashboard/CalibrationModal"
+import { CalibrationProfilesModal } from "./dashboard/CalibrationProfilesModal"
 import { ConnectionStatus } from "./dashboard/ConnectionStatus"
 import { ForceMagnitudesTab } from "./dashboard/tabs/ForceMagnitudesTab"
 import { ComponentsTab } from "./dashboard/tabs/ComponentsTab"
@@ -70,8 +72,10 @@ export default function SensorDashboard() {
   const comparison = useComparisonData()
 
   const [showCalibration, setShowCalibration] = useState(false)
+  const [showProfiles, setShowProfiles] = useState(false)
   const calibration = useCalibration()
   const tare = useTareOffset()
+  const profiles = useCalibrationProfiles(calibration)
 
   // --- Step 1: stable dispatcher refs ---
   // These refs break the circular dependency between useSerialPort (which needs
@@ -223,6 +227,7 @@ export default function SensorDashboard() {
         hasPausedData={!sensorData.isCollecting && sensorData.totalSamples > 0}
         totalSamples={sensorData.totalSamples}
         onOpenCalibration={() => setShowCalibration(true)}
+        onOpenProfiles={() => setShowProfiles(true)}
         canExport={sensorData.totalSamples > 0}
         canSaveRecording={sensorData.totalSamples > 0}
         displaySampleCount={displaySettings.displaySampleCount}
@@ -260,6 +265,14 @@ export default function SensorDashboard() {
         calibration={calibration}
         wallDeclineDeg={displaySettings.wallDeclineDeg}
         onWallDeclineChange={displaySettings.handleWallDeclineChange}
+        onOpenProfiles={() => setShowProfiles(true)}
+      />
+
+      <CalibrationProfilesModal
+        open={showProfiles}
+        onClose={() => setShowProfiles(false)}
+        profilesApi={profiles}
+        activeConfig={calibration.config}
       />
 
       <Tabs defaultValue="norms" value={activeTab} onValueChange={setActiveTab} className="w-full">

@@ -11,6 +11,7 @@ import {
   Triangle,
   Trash2,
   Activity,
+  FolderOpen,
 } from "lucide-react"
 import { SENSOR_NAMES, FORCE_COMPONENTS } from "../../constants/sensor"
 import {
@@ -31,6 +32,8 @@ interface CalibrationModalProps {
   /** Wall decline angle θ — owned by display settings, edited here in the wizard. */
   wallDeclineDeg: number
   onWallDeclineChange: (deg: number) => void
+  /** Open the calibration-profiles manager (save current / load / edit a profile). */
+  onOpenProfiles: () => void
 }
 
 type Stage = "confirm" | "angle" | "boards" | "mode" | "steps"
@@ -93,6 +96,7 @@ export function CalibrationModal({
   calibration,
   wallDeclineDeg,
   onWallDeclineChange,
+  onOpenProfiles,
 }: CalibrationModalProps) {
   const {
     config,
@@ -895,9 +899,20 @@ export function CalibrationModal({
           >
             <RotateCcw className="h-3.5 w-3.5" /> Reset to defaults
           </Button>
-          <Button variant="default" size="sm" onClick={requestClose}>
-            Done
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={onOpenProfiles}
+              title="Save this calibration as a named profile, or load/edit a saved one"
+            >
+              <FolderOpen className="h-3.5 w-3.5" /> Save / Load Profile
+            </Button>
+            <Button variant="default" size="sm" onClick={requestClose}>
+              Done
+            </Button>
+          </div>
         </div>
 
         {/* ── Finish warning: shown when leaving with axes still on defaults ── */}

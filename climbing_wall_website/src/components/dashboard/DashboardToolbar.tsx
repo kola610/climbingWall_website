@@ -13,6 +13,7 @@ import {
   PowerOff,
   Settings2,
   Ruler,
+  FolderOpen,
 } from "lucide-react"
 import { SAMPLE_COUNT_OPTIONS } from "../../constants/sensor"
 import { WorldFrameControl } from "./WorldFrameControl"
@@ -26,6 +27,7 @@ interface DashboardToolbarProps {
   onCollectToggle: () => void
   onStartFresh: () => void
   onOpenCalibration: () => void
+  onOpenProfiles: () => void
   canExport: boolean
   canSaveRecording: boolean
   totalSamples: number
@@ -52,13 +54,16 @@ interface DashboardToolbarProps {
 }
 
 /**
- * Sticky toolbar — five actions, two visual groups.
+ * Sticky toolbar, organised into three scannable zones so related controls read
+ * as belonging together:
  *
- * Primary (left):  Connect / Start-Stop (the "do the experiment" actions)
- * Secondary (right): Zero Sensors / Chart Settings / Export Data
+ *   1. Session (left, prominent): Connect + record / save / export.
+ *   2. Sensor calibration (tray): Zero Sensors · Calibrate · Profiles.
+ *   3. View (tray): coordinate frame + Chart Settings.
  *
- * Button copy uses plain language so a non-technical user immediately
- * understands what each button does.
+ * The two tool zones use a shared bordered-tray treatment; the whole bar wraps
+ * by whole groups on narrow widths (a group never splits across rows). Button
+ * copy stays plain so a non-technical user understands each action at a glance.
  */
 export function DashboardToolbar({
   connected,
@@ -68,6 +73,7 @@ export function DashboardToolbar({
   onCollectToggle,
   onStartFresh,
   onOpenCalibration,
+  onOpenProfiles,
   canExport,
   canSaveRecording,
   totalSamples,
@@ -113,10 +119,12 @@ export function DashboardToolbar({
 
   return (
     <div className="sticky top-0 z-10 bg-background pt-2 pb-4">
-      <div className="flex items-center gap-3">
+      {/* Groups wrap as whole units on narrow widths; controls never split
+          across rows within a group. Desktop tool — no mobile layout needed. */}
+      <div className="flex flex-wrap items-center gap-3">
 
-        {/* ── Primary actions ── */}
-        <div className="flex items-center gap-3 mr-auto">
+        {/* ── Session: connect + record (the primary "run the experiment" actions) ── */}
+        <div className="flex flex-wrap items-center gap-2 mr-auto">
           {/* 1. Connect / Disconnect */}
           <Button
             onClick={onConnectToggle}
@@ -141,8 +149,8 @@ export function DashboardToolbar({
               <StopCircle className="h-4 w-4" /> Stop Recording
             </Button>
           ) : hasPausedData ? (
-            /* Paused with data → offer Resume, Save, and New Recording */
-            <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/30 px-2 py-1">
+            /* Paused with data → offer New Recording, Save, and Export */
+            <>
               <Button
                 onClick={onStartFresh}
                 variant="default"
@@ -274,7 +282,7 @@ export function DashboardToolbar({
                   </div>
                 </PopoverContent>
               </Popover>
-            </div>
+            </>
           ) : (
             /* Idle (no data) → offer Start */
             <Button
@@ -287,8 +295,44 @@ export function DashboardToolbar({
           )}
         </div>
 
-        {/* ── Secondary actions ── */}
-        <div className="flex items-center gap-2">
+        {/* ── Sensor calibration: zero · calibrate · manage profiles ──
+            One cluster: setting the live zero, calibrating scales, and the saved
+            calibration profiles all belong to "getting the sensors right". */}
+        <div className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-muted/30 p-1">
+          {/* Zero Sensors — set the runtime zero (tare) on demand (volatile, not saved). */}
+          <TareControl
+            zeroedAt={zeroedAt}
+            canTare={canTare}
+            onTare={onTare}
+            onClearZero={onClearZero}
+          />
+
+          {/* Divider: the live tare (left) vs. the persisted calibration actions (right). */}
+          <div className="mx-0.5 h-6 w-px bg-border/70" aria-hidden="true" />
+
+          {/* Calibrate Sensors (per-board scale wizard) */}
+          <Button
+            onClick={onOpenCalibration}
+            variant="outline"
+            className="flex items-center gap-2"
+            title="Calibrate each board's axes against known weights"
+          >
+            <Ruler className="h-4 w-4" /> Calibrate
+          </Button>
+
+          {/* Calibration profiles — save / load / edit named calibrations. */}
+          <Button
+            onClick={onOpenProfiles}
+            variant="outline"
+            className="flex items-center gap-2"
+            title="Save, load, or manage named calibration profiles"
+          >
+            <FolderOpen className="h-4 w-4" /> Profiles
+          </Button>
+        </div>
+
+        {/* ── View & chart settings ── */}
+        <div className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-muted/30 p-1">
           {/* Coordinate frame — default is the raw sensor (board) frame. World frame
               is an opt-in, UI-only rotation: enter + confirm the wall tilt to lock it.
               The stored data is always sensor frame. */}
@@ -300,26 +344,7 @@ export function DashboardToolbar({
             onUnlock={onUnlockWorldView}
           />
 
-          {/* Zero Sensors — set the runtime zero (tare) on demand. Separate from
-              calibration: this is the volatile zero, not a saved scale. */}
-          <TareControl
-            zeroedAt={zeroedAt}
-            canTare={canTare}
-            onTare={onTare}
-            onClearZero={onClearZero}
-          />
-
-          {/* 3. Calibrate Sensors (per-board scale wizard) */}
-          <Button
-            onClick={onOpenCalibration}
-            variant="outline"
-            className="flex items-center gap-2"
-            title="Calibrate each board's axes against known weights"
-          >
-            <Ruler className="h-4 w-4" /> Calibrate Sensors
-          </Button>
-
-          {/* 4. Chart settings popover */}
+          {/* Chart settings popover */}
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="outline" className="flex items-center gap-2">

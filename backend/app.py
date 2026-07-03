@@ -26,6 +26,12 @@ CALIB_PATH = (
 # runtime in the frontend (a volatile tare), never saved here.
 CALIB_KEYS = ("axisSigns", "axisScales")
 
+# Named, reusable calibration profiles (switches + scales under a user name).
+# Stored as a single JSON list so they survive backend restarts. This is the
+# durable library of calibrations; calibration_settings.json above is just the
+# one currently active. Offsets are never stored here (runtime-only tare).
+PROFILES_PATH = Path(__file__).resolve().parent / "calibration_profiles.json"
+
 CSV_HEADERS = [
     "Timestamp",
     "Sample",
@@ -43,7 +49,7 @@ MAX_CHART_POINTS = 1000
 @app.after_request
 def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+    response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
     return response
 
@@ -366,6 +372,108 @@ def save_calibration():
         return jsonify({"error": f"Could not save calibration: {err}"}), 500
 
     return jsonify({"message": "Calibration saved.", "path": str(CALIB_PATH)}), 200
+
+
+# ── Named calibration profiles ────────────────────────────────────────────────
+
+def _calib_config_error(payload):
+    """Return an error string if payload lacks valid CALIB_KEYS arrays, else None."""
+    for key in CALIB_KEYS:
+        arr = payload.get(key)
+        if (
+            not isinstance(arr, list)
+            or len(arr) != 12
+            or not all(isinstance(n, (int, float)) for n in arr)
+        ):
+            return f"'{key}' must be an array of 12 numbers."
+    return None
+
+
+def _read_profiles():
+    if not PROFILES_PATH.exists():
+        return []
+    try:
+        with PROFILES_PATH.open(encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _write_profiles(profiles):
+    with PROFILES_PATH.open("w", encoding="utf-8") as f:
+        json.dump(profiles, f, indent=2)
+
+
+@app.route("/api/calibration/profiles", methods=["GET"])
+def list_calibration_profiles():
+    """All saved calibration profiles (name + switches + scales)."""
+    return jsonify({"profiles": _read_profiles()})
+
+
+@app.route("/api/calibration/profiles", methods=["POST", "OPTIONS"])
+def create_calibration_profile():
+    """Create a new named profile from the supplied calibration config."""
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "A profile name is required."}), 400
+    err = _calib_config_error(payload)
+    if err:
+        return jsonify({"error": err}), 400
+
+    profiles = _read_profiles()
+    if any(p.get("name") == name for p in profiles):
+        return jsonify({"error": f"A profile named '{name}' already exists."}), 409
+
+    profile = {"name": name, **{key: payload[key] for key in CALIB_KEYS}}
+    profiles.append(profile)
+    try:
+        _write_profiles(profiles)
+    except Exception as err:
+        return jsonify({"error": f"Could not save profile: {err}"}), 500
+    return jsonify(profile), 201
+
+
+@app.route("/api/calibration/profiles/<path:name>", methods=["PUT", "DELETE", "OPTIONS"])
+def modify_calibration_profile(name):
+    """Update/rename (PUT) or delete (DELETE) an existing profile by name."""
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    profiles = _read_profiles()
+    idx = next((i for i, p in enumerate(profiles) if p.get("name") == name), None)
+    if idx is None:
+        return jsonify({"error": f"Profile '{name}' not found."}), 404
+
+    if request.method == "DELETE":
+        removed = profiles.pop(idx)
+        try:
+            _write_profiles(profiles)
+        except Exception as err:
+            return jsonify({"error": f"Could not delete profile: {err}"}), 500
+        return jsonify({"message": f"Deleted '{removed.get('name')}'."}), 200
+
+    # PUT — write changed config back, optionally renaming.
+    payload = request.get_json(silent=True) or {}
+    new_name = (payload.get("name") or name).strip()
+    if not new_name:
+        return jsonify({"error": "A profile name is required."}), 400
+    err = _calib_config_error(payload)
+    if err:
+        return jsonify({"error": err}), 400
+    if new_name != name and any(p.get("name") == new_name for p in profiles):
+        return jsonify({"error": f"A profile named '{new_name}' already exists."}), 409
+
+    profiles[idx] = {"name": new_name, **{key: payload[key] for key in CALIB_KEYS}}
+    try:
+        _write_profiles(profiles)
+    except Exception as err:
+        return jsonify({"error": f"Could not update profile: {err}"}), 500
+    return jsonify(profiles[idx]), 200
 
 
 @app.route("/api/recordings", methods=["GET"])
