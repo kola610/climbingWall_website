@@ -15,6 +15,14 @@ export default defineConfig({
       ignored: ["**/src/config/calibration_settings.json"],
     },
     proxy: {
+      // The live sensor stream is a WebSocket. It must be listed BEFORE the
+      // generic "/api" rule so the upgrade is proxied with ws:// rather than
+      // being caught by the plain HTTP rule below.
+      "/api/stream": {
+        target: "ws://localhost:5001",
+        ws: true,
+        changeOrigin: true,
+      },
       "/api": {
         target: "http://localhost:5001",
         changeOrigin: true,

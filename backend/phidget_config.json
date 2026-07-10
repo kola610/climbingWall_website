@@ -1,0 +1,15 @@
+{
+  "bridgeSerials": [
+    481661,
+    293698,
+    481689,
+    293701
+  ],
+  "channels": [
+    0,
+    1,
+    2
+  ],
+  "bridgeGain": 128,
+  "dataIntervalMs": 10
+}

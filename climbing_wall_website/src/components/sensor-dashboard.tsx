@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs"
 import { Alert, AlertDescription } from "./ui/alert"
 import { BarChart, Activity, Timer, FolderOpen } from "lucide-react"
 
-import { useSerialPort } from "../hooks/useSerialPort"
+import { useBackendStream } from "../hooks/useBackendStream"
 import { useSensorData } from "../hooks/useSensorData"
 import { useJumpTest } from "../hooks/useJumpTest"
 import { useDisplaySettings } from "../hooks/useDisplaySettings"
@@ -99,7 +99,10 @@ export default function SensorDashboard() {
   }, []) // intentionally stable — reads from refs at call time
 
   // --- Step 2: domain hooks ---
-  const serial = useSerialPort(handleSerialLine)
+  // WebSocket stream to the backend (which reads the Phidget bridges directly).
+  // Drop-in replacement for useSerialPort — same interface, so nothing else in
+  // this component changes. Kept named `serial` to minimize churn.
+  const serial = useBackendStream(handleSerialLine)
 
   const displaySettings = useDisplaySettings()
 

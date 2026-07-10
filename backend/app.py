@@ -2,14 +2,19 @@ from datetime import datetime
 from pathlib import Path
 import csv
 import json
+import queue
 import re
 
 import numpy as np
 from scipy.integrate import cumulative_trapezoid
 
 from flask import Flask, jsonify, request
+from flask_sock import Sock
+
+from phidget_stream import streamer
 
 app = Flask(__name__)
+sock = Sock(app)
 SAVE_DIR = Path(__file__).resolve().parent / "saved_recordings"
 SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -263,6 +268,35 @@ def compute_jump():
         "jumpHeightM": round(height_m, 4),
         "jumpHeightCm": int(round(height_m * 100)),
     }), 200
+
+
+# ── Live Phidget sensor stream ───────────────────────────────────────────────
+# The Phidget bridges are now attached directly to this computer (no Pi). This
+# WebSocket replaces the Pi's serial stream: same line format (12 comma-
+# separated raw voltage ratios, ~100 Hz), so the frontend pipeline is unchanged.
+
+@sock.route("/api/stream")
+def sensor_stream(ws):
+    q = streamer.add_client()
+    try:
+        while True:
+            try:
+                line = q.get(timeout=1.0)
+            except queue.Empty:
+                # No sensor data (boards detached / idle). Send a heartbeat so
+                # a closed socket is still detected promptly; the frontend
+                # parses it as {type:"unknown"} and ignores it.
+                line = "ping"
+            ws.send(line)
+    finally:
+        streamer.remove_client(q)
+
+
+@app.route("/api/phidgets/status", methods=["GET"])
+def phidget_status():
+    """Attach state of the 4 bridge boards; also boots the Phidget channels."""
+    streamer.ensure_started()
+    return jsonify(streamer.status())
 
 
 @app.route("/")
@@ -534,4 +568,7 @@ def get_recording_data(recording_id: str):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5001)
+    # use_reloader=False: the reloader forks a second process that would also
+    # open the Phidget channels, and these bridges are single-open — the two
+    # processes would fight over the hardware and neither would attach.
+    app.run(debug=True, port=5001, use_reloader=False)
