@@ -23,6 +23,7 @@ import { useTareOffset } from "../hooks/useTareOffset"
 import { useCalibrationProfiles } from "../hooks/useCalibrationProfiles"
 
 import { parseSerialLine } from "../utils/serialParser"
+import { configMatchesProfile } from "../utils/calibrationProfiles"
 import { exportToCsv } from "../utils/csvExport"
 import { createChartOptions } from "../utils/chartOptions"
 import { saveRecordingToBackend } from "../utils/recordingApi"
@@ -175,6 +176,13 @@ export default function SensorDashboard() {
     ],
   )
 
+  // Whether the active calibration has drifted from the profile it was loaded
+  // from — shown in the wizard's "what am I editing" banner and the profiles list.
+  const activeProfile = profiles.profiles.find((p) => p.name === profiles.activeName) ?? null
+  const activeProfileModified = activeProfile
+    ? !configMatchesProfile(calibration.config, activeProfile)
+    : false
+
   const handleSaveRecording = async (name: string) => {
     const currentData = sensorData.allSensorDataRef.current
     if (currentData.length === 0) {
@@ -212,6 +220,12 @@ export default function SensorDashboard() {
         </Alert>
       )}
 
+      {serial.hardwareWarning && (
+        <Alert className="border-amber-300 bg-amber-50 text-amber-800">
+          <AlertDescription>{serial.hardwareWarning}</AlertDescription>
+        </Alert>
+      )}
+
       {saveStatusMessage && (
         <Alert className="border-green-300 bg-green-50 text-green-800">
           <AlertDescription>{saveStatusMessage}</AlertDescription>
@@ -245,7 +259,12 @@ export default function SensorDashboard() {
         onClearZero={tare.clearZero}
         onConnectToggle={handleConnectToggle}
         onCollectToggle={sensorData.toggleDataCollection}
-        onStartFresh={sensorData.startFreshCollection}
+        onStartFresh={() => {
+          // Starting fresh resets the buffer AND sample numbering, so any jump
+          // test in progress would compute over a mismatched window — abort it.
+          jumpTest.reset()
+          sensorData.startFreshCollection()
+        }}
         onExportCsv={() => exportToCsv(sensorData.allSensorDataRef.current)}
         onSaveRecording={handleSaveRecording}
         onSampleCountChange={displaySettings.handleSampleCountChange}
@@ -269,6 +288,8 @@ export default function SensorDashboard() {
         wallDeclineDeg={displaySettings.wallDeclineDeg}
         onWallDeclineChange={displaySettings.handleWallDeclineChange}
         onOpenProfiles={() => setShowProfiles(true)}
+        activeProfileName={profiles.activeName}
+        activeProfileModified={activeProfileModified}
       />
 
       <CalibrationProfilesModal
@@ -276,6 +297,16 @@ export default function SensorDashboard() {
         onClose={() => setShowProfiles(false)}
         profilesApi={profiles}
         activeConfig={calibration.config}
+        onRecalibrate={async (profile) => {
+          // Changing a profile's values goes through the wizard, never raw
+          // number entry: load the profile as the active calibration, then
+          // open the wizard on it. Writing the recalibrated values back to the
+          // profile is the explicit "Update" step in this modal afterwards.
+          if (await profiles.select(profile)) {
+            setShowProfiles(false)
+            setShowCalibration(true)
+          }
+        }}
       />
 
       <Tabs defaultValue="norms" value={activeTab} onValueChange={setActiveTab} className="w-full">

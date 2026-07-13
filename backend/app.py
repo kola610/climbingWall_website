@@ -177,10 +177,11 @@ def calculate_jump_height_with_angle(foot_forces, hand_forces, mass, sampling_ra
     window_start = max(0, i_max_accel - 200)
 
     # Detect the first significant upward slope in foot force before the peak.
+    # Start no earlier than index 1: at i=0 the i-1 backward difference would
+    # wrap to the LAST sample (Python negative indexing), poisoning the slope.
     slope = np.zeros(len(accel_z))
-    for i in range(window_start, i_max_accel):
-        if i + 1 < len(accel_z):
-            slope[i] = foot_global_z[i] - foot_global_z[i - 1]
+    for i in range(max(window_start, 1), i_max_accel):
+        slope[i] = foot_global_z[i] - foot_global_z[i - 1]
 
     slope_window = slope[window_start:i_max_accel]
     i_max_change_local = 0
@@ -240,7 +241,12 @@ def compute_jump():
     foot = payload.get("foot")
     mass = payload.get("mass")
     wall_angle = payload.get("wallAngle", 0)
-    sampling_rate = payload.get("samplingRate", 100)
+    # Default the sampling rate from the live stream's configured interval so the
+    # jump physics can never silently drift from the hardware config (dt enters
+    # the double integration squared). Clients may still override explicitly.
+    sampling_rate = payload.get("samplingRate")
+    if sampling_rate is None:
+        sampling_rate = 1000.0 / float(streamer.config.get("dataIntervalMs", 10))
 
     if not isinstance(hand, list) or not isinstance(foot, list):
         return jsonify({"error": "'hand' and 'foot' must be arrays of [Fx,Fy,Fz]."}), 400
@@ -248,6 +254,8 @@ def compute_jump():
         return jsonify({"error": "'hand' and 'foot' must be equal-length arrays of >= 10 samples."}), 400
     if not isinstance(mass, (int, float)) or mass <= 0:
         return jsonify({"error": "'mass' must be a positive number (kg)."}), 400
+    if not isinstance(sampling_rate, (int, float)) or sampling_rate <= 0:
+        return jsonify({"error": "'samplingRate' must be a positive number (Hz)."}), 400
 
     try:
         foot_arr = np.asarray(foot, dtype=float)

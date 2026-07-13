@@ -7,13 +7,16 @@ import {
   Copy,
   Pencil,
   Trash2,
-  Check,
   CheckCircle2,
   AlertTriangle,
   Loader2,
+  Ruler,
 } from "lucide-react"
 import type { CalibrationConfig } from "../../utils/calibration"
-import type { CalibrationProfile } from "../../utils/calibrationProfiles"
+import {
+  configMatchesProfile,
+  type CalibrationProfile,
+} from "../../utils/calibrationProfiles"
 import type { UseCalibrationProfilesReturn } from "../../hooks/useCalibrationProfiles"
 
 interface CalibrationProfilesModalProps {
@@ -22,22 +25,20 @@ interface CalibrationProfilesModalProps {
   profilesApi: UseCalibrationProfilesReturn
   /** The current active calibration — what "Save as new" / "Update" captures. */
   activeConfig: CalibrationConfig
-}
-
-/** True when the active calibration matches the profile's stored config. */
-function configMatches(active: CalibrationConfig, profile: CalibrationProfile): boolean {
-  return (
-    active.axisSigns.length === profile.axisSigns.length &&
-    active.axisScales.length === profile.axisScales.length &&
-    active.axisSigns.every((v, i) => v === profile.axisSigns[i]) &&
-    active.axisScales.every((v, i) => v === profile.axisScales[i])
-  )
+  /**
+   * Load this profile as the active calibration and open the calibration wizard
+   * on it. This is the ONLY way to change a profile's values — recalibrating
+   * with real weights — so nobody ever types raw scale numbers by hand.
+   */
+  onRecalibrate: (profile: CalibrationProfile) => void
 }
 
 /**
  * Lightweight profile browser/manager. Save the current calibration as a new
  * profile, or pick one to apply it as the active calibration; per row, load /
- * duplicate / rename / delete (delete is two-step to prevent accidents).
+ * recalibrate (opens the wizard) / duplicate / rename / delete (delete is
+ * two-step to prevent accidents). Profile VALUES are never edited by hand here
+ * — changing them means recalibrating in the wizard.
  *
  * Deliberately a thin overlay (no Radix Dialog in the project) layered above the
  * calibration wizard via a higher z-index, so it can be opened from inside the
@@ -48,10 +49,12 @@ export function CalibrationProfilesModal({
   onClose,
   profilesApi,
   activeConfig,
+  onRecalibrate,
 }: CalibrationProfilesModalProps) {
   const { profiles, activeName, loading, error, setError } = profilesApi
 
   const [newName, setNewName] = useState("")
+  // Inline rename form: { name: original (the update key), value: edited name }.
   const [rename, setRename] = useState<{ name: string; value: string } | null>(null)
   const [duplicate, setDuplicate] = useState<{ name: string; value: string } | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
@@ -80,7 +83,7 @@ export function CalibrationProfilesModal({
   if (!open) return null
 
   const activeProfile = profiles.find((p) => p.name === activeName) ?? null
-  const activeModified = activeProfile ? !configMatches(activeConfig, activeProfile) : false
+  const activeModified = activeProfile ? !configMatchesProfile(activeConfig, activeProfile) : false
 
   const handleSaveNew = async () => {
     const name = newName.trim()
@@ -161,6 +164,11 @@ export function CalibrationProfilesModal({
               <div className="text-sm font-medium">Saved profiles</div>
               {loading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
             </div>
+            <p className="text-xs text-muted-foreground">
+              To change a profile's calibration, use the <Ruler className="inline h-3 w-3" />{" "}
+              button — it loads the profile and opens the calibration wizard, where values
+              are set by measuring real weights (never typed in by hand).
+            </p>
 
             {!loading && profiles.length === 0 && (
               <p className="rounded-md border border-dashed py-6 text-center text-sm text-muted-foreground">
@@ -177,42 +185,18 @@ export function CalibrationProfilesModal({
                 return (
                   <div key={profile.name} className="rounded-lg border bg-muted/10 p-3">
                     <div className="flex items-center gap-2">
-                      {isRenaming ? (
-                        <input
-                          autoFocus
-                          type="text"
-                          value={rename.value}
-                          maxLength={80}
-                          onChange={(e) => setRename({ name: profile.name, value: e.target.value })}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleRename()
-                            if (e.key === "Escape") setRename(null)
-                          }}
-                          className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                        />
-                      ) : (
-                        <div className="flex min-w-0 flex-1 items-center gap-2">
-                          <span className="truncate text-sm font-medium">{profile.name}</span>
-                          {isActive && (
-                            <span className="flex shrink-0 items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-700">
-                              <CheckCircle2 className="h-3 w-3" />
-                              {activeModified ? "Active · modified" : "Active"}
-                            </span>
-                          )}
-                        </div>
-                      )}
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <span className="truncate text-sm font-medium">{profile.name}</span>
+                        {isActive && (
+                          <span className="flex shrink-0 items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-700">
+                            <CheckCircle2 className="h-3 w-3" />
+                            {activeModified ? "Active · modified" : "Active"}
+                          </span>
+                        )}
+                      </div>
 
-                      {/* Per-row actions */}
-                      {isRenaming ? (
-                        <div className="flex shrink-0 items-center gap-1">
-                          <Button size="sm" className="h-7 gap-1" onClick={handleRename}>
-                            <Check className="h-3.5 w-3.5" /> Save
-                          </Button>
-                          <Button variant="ghost" size="sm" className="h-7" onClick={() => setRename(null)}>
-                            Cancel
-                          </Button>
-                        </div>
-                      ) : (
+                      {/* Per-row actions (hidden while this row's rename form is open) */}
+                      {!isRenaming && (
                         <div className="flex shrink-0 items-center gap-0.5">
                           <Button
                             variant="outline"
@@ -228,9 +212,19 @@ export function CalibrationProfilesModal({
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7"
+                            title="Recalibrate — load this profile and change its values by calibrating with weights in the wizard"
+                            onClick={() => onRecalibrate(profile)}
+                          >
+                            <Ruler className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
                             title="Duplicate"
                             onClick={() => {
                               setDuplicate({ name: profile.name, value: `${profile.name} copy` })
+                              setRename(null)
                               setConfirmDelete(null)
                             }}
                           >
@@ -243,6 +237,7 @@ export function CalibrationProfilesModal({
                             title="Rename"
                             onClick={() => {
                               setRename({ name: profile.name, value: profile.name })
+                              setDuplicate(null)
                               setConfirmDelete(null)
                             }}
                           >
@@ -255,6 +250,7 @@ export function CalibrationProfilesModal({
                             title="Delete"
                             onClick={() => {
                               setConfirmDelete(profile.name)
+                              setRename(null)
                               setDuplicate(null)
                             }}
                           >
@@ -263,6 +259,37 @@ export function CalibrationProfilesModal({
                         </div>
                       )}
                     </div>
+
+                    {/* Inline rename form. Values are deliberately not editable
+                        here — recalibrate in the wizard to change them. */}
+                    {isRenaming && (
+                      <div className="mt-2 flex items-center gap-2 border-t pt-2">
+                        <input
+                          autoFocus
+                          type="text"
+                          value={rename.value}
+                          maxLength={80}
+                          placeholder="New name"
+                          onChange={(e) => setRename({ name: profile.name, value: e.target.value })}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleRename()
+                            if (e.key === "Escape") setRename(null)
+                          }}
+                          className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                        />
+                        <Button
+                          size="sm"
+                          className="h-7 gap-1"
+                          disabled={!rename.value.trim()}
+                          onClick={handleRename}
+                        >
+                          <Pencil className="h-3.5 w-3.5" /> Rename
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-7" onClick={() => setRename(null)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    )}
 
                     {/* Inline duplicate form */}
                     {isDuplicating && (

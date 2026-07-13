@@ -32,8 +32,16 @@ interface CalibrationModalProps {
   /** Wall decline angle θ — owned by display settings, edited here in the wizard. */
   wallDeclineDeg: number
   onWallDeclineChange: (deg: number) => void
-  /** Open the calibration-profiles manager (save current / load / edit a profile). */
+  /** Open the calibration-profiles manager (save current / load / rename a profile). */
   onOpenProfiles: () => void
+  /**
+   * Name of the profile the active calibration was loaded from (null = none) and
+   * whether the live calibration has drifted from that profile's saved values.
+   * Drives the "what am I editing" banner so it is always clear which
+   * calibration the wizard's saves are changing.
+   */
+  activeProfileName: string | null
+  activeProfileModified: boolean
 }
 
 type Stage = "confirm" | "angle" | "boards" | "mode" | "steps"
@@ -97,6 +105,8 @@ export function CalibrationModal({
   wallDeclineDeg,
   onWallDeclineChange,
   onOpenProfiles,
+  activeProfileName,
+  activeProfileModified,
 }: CalibrationModalProps) {
   const {
     config,
@@ -443,6 +453,38 @@ export function CalibrationModal({
           >
             <X className="h-4 w-4" />
           </Button>
+        </div>
+
+        {/* What is being edited — visible on every stage so the calibrating
+            person always knows which calibration the saves are changing. */}
+        <div className="mb-4 flex items-start gap-2 rounded-md border bg-muted/30 p-2.5 text-xs text-muted-foreground">
+          <FolderOpen className="mt-0.5 h-4 w-4 shrink-0" />
+          {activeProfileName ? (
+            <span>
+              You are changing the <span className="font-semibold text-foreground">active calibration</span>,
+              loaded from profile{" "}
+              <span className="font-semibold text-foreground">“{activeProfileName}”</span>.
+              Saves here apply to the live charts immediately
+              {activeProfileModified ? (
+                <>
+                  {" "}— it already <span className="font-medium text-amber-700">differs from the
+                  saved profile</span>. Use <em>Save / Load Profile → Update “{activeProfileName}”</em>{" "}
+                  to write the changes back, or save under a new name.
+                </>
+              ) : (
+                <>
+                  , but the profile itself is only updated via{" "}
+                  <em>Save / Load Profile → Update “{activeProfileName}”</em>.
+                </>
+              )}
+            </span>
+          ) : (
+            <span>
+              You are changing the <span className="font-semibold text-foreground">active calibration</span>{" "}
+              (not linked to any saved profile). Saves apply to the live charts immediately;
+              use <em>Save / Load Profile</em> to keep this calibration under a name.
+            </span>
+          )}
         </div>
 
         {!connected && (

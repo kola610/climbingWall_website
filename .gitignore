@@ -2,3 +2,6 @@ docs/
 climbing_wall_website/src/config/pseudo_calibration_settings.json
 climbing_wall_website/src/config/original_settings.json
 backend/calibration_profiles.json
+__pycache__/
+*.pyc
+backend/venv/

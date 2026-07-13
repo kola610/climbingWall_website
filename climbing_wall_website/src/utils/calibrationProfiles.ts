@@ -17,6 +17,22 @@ export interface CalibrationProfile extends CalibrationConfig {
   name: string
 }
 
+/**
+ * True when the active calibration matches the profile's stored config — used to
+ * decide whether the active profile has unsaved changes ("Active · modified").
+ */
+export function configMatchesProfile(
+  active: CalibrationConfig,
+  profile: CalibrationProfile,
+): boolean {
+  return (
+    active.axisSigns.length === profile.axisSigns.length &&
+    active.axisScales.length === profile.axisScales.length &&
+    active.axisSigns.every((v, i) => v === profile.axisSigns[i]) &&
+    active.axisScales.every((v, i) => v === profile.axisScales[i])
+  )
+}
+
 /** Throw an Error carrying the backend's message (or a fallback) for a failed response. */
 async function throwApiError(res: Response, fallback: string): Promise<never> {
   const payload = await res.json().catch(() => null)

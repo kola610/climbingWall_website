@@ -1,18 +1,20 @@
 # Measuring Pipeline
 
-This describes the full data path from raw serial bytes to displayed Newton forces, stored recordings, and jump height results.
+This describes the full data path from raw sensor lines to displayed Newton forces, stored recordings, and jump height results.
 
 ---
 
 ## Hardware and sampling rate
 
-4 load cell boards (Left Hand, Right Hand, Left Foot, Right Foot), each measuring 3-axis force. The Raspberry Pi streams at **~100 Hz** (`setDataInterval(10)`), sending one comma-separated line of 12 floats per sample. The values are **raw voltage ratios** (~1e-6 scale); all calibration to Newtons happens on the computer, not on the Pi.
+4 load cell boards (Left Hand, Right Hand, Left Foot, Right Foot), each measuring 3-axis force via a PhidgetBridge. The bridges plug **directly into this computer** (the Raspberry Pi middleman was removed): the Flask backend reads them ([`backend/phidget_stream.py`](backend/phidget_stream.py)) and broadcasts over a WebSocket (`/api/stream`) at **~100 Hz** (`dataIntervalMs: 10` in [`backend/phidget_config.json`](backend/phidget_config.json)), sending one comma-separated line of 12 floats per sample — byte-for-byte the format the Pi used to send over serial, so everything downstream is unchanged. The values are **raw voltage ratios** (~1e-6 scale); all calibration to Newtons happens in the frontend.
+
+Board → sensor-group mapping (which serial number is which body part) lives in `phidget_config.json`; reorder `bridgeSerials` there if sensors appear swapped in the GUI.
 
 ---
 
-## Serial ingestion (`useSerialPort` → `handleSerialLine`)
+## Stream ingestion (`useBackendStream` → `handleSerialLine`)
 
-In [`sensor-dashboard.tsx`](climbing_wall_website/src/components/sensor-dashboard.tsx:81), every line from the serial port is passed to `handleSerialLine(line)`:
+[`useBackendStream`](climbing_wall_website/src/hooks/useBackendStream.ts) is a drop-in replacement for the old `useSerialPort` (same interface; the Web Serial hook is kept in the repo but unused). In [`sensor-dashboard.tsx`](climbing_wall_website/src/components/sensor-dashboard.tsx:81), every line from the stream is passed to `handleSerialLine(line)`:
 
 ```ts
 const msg = parseSerialLine(line)

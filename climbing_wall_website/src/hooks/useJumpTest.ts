@@ -26,8 +26,11 @@ export function useJumpTest({
   setError,
   allSensorDataRef,
 }: JumpTestDeps) {
-  // Index into allSensorDataRef marking the start of the current jump window.
-  const jumpStartIndexRef = useRef(0)
+  // sampleNumber of the first reading in the current jump window. Sample numbers
+  // (not array indices) survive buffer trimming and are invalidated naturally by
+  // "Start Fresh" (which resets numbering, making a stale start unreachable).
+  // null = no jump window marked.
+  const jumpStartSampleRef = useRef<number | null>(null)
   // Transient test state — not persisted (a running test cannot survive a reload)
   const [jumpTestActive, setJumpTestActive] = useState(false)
   const [jumpTestStatus, setJumpTestStatus] = useState<"idle" | "waiting" | "completed">("idle")
@@ -67,9 +70,12 @@ export function useJumpTest({
     setJumpTestActive(true)
     setCountdown(10)
     setTimerActive(true)
-    // Mark where this jump window begins in the live force buffer. Real serial
-    // data is always buffered while connected, so the window is [start, finish].
-    jumpStartIndexRef.current = allSensorDataRef.current.length
+    // Mark where this jump window begins in the live force buffer, by sample
+    // number (data is always buffered while connected, so the window is
+    // [start, finish]). The next incoming reading is the window's first sample.
+    const buf = allSensorDataRef.current
+    jumpStartSampleRef.current =
+      buf.length > 0 ? buf[buf.length - 1].sampleNumber + 1 : 0
     // In mock mode the user clicks "Finish Jump" to trigger a mock result.
   }, [isConnected, mockModeActive, setError, bodyWeightSubmitted, allSensorDataRef])
 
@@ -80,7 +86,14 @@ export function useJumpTest({
     }
 
     if (isConnected) {
-      const window = allSensorDataRef.current.slice(jumpStartIndexRef.current)
+      // Locate the window by sample number. If the buffer was reset ("Start
+      // Fresh") since the jump started, the stale start number exceeds every
+      // current sample → empty window → the backend's sample-count check
+      // rejects it with a clear error instead of computing over wrong data.
+      const buf = allSensorDataRef.current
+      const startSample = jumpStartSampleRef.current ?? 0
+      const startIdx = buf.findIndex((r) => r.sampleNumber >= startSample)
+      const window = startIdx === -1 ? [] : buf.slice(startIdx)
       const mass = bodyWeightSubmitted ?? 0
       const angle = wallAngleSubmitted ?? 0
       try {
@@ -151,6 +164,7 @@ export function useJumpTest({
     setJumpTestActive(false)
     setJumpTestStatus("idle")
     setTimerActive(false)
+    jumpStartSampleRef.current = null
   }, [])
 
   return {

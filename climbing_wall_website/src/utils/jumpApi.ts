@@ -2,9 +2,6 @@ import type { SensorReading } from "../types/sensor"
 
 const BACKEND_BASE_URL = import.meta.env.VITE_BACKEND_URL ?? ""
 
-/** The Pi streams at ~100 Hz (setDataInterval(10)); the algorithm assumes this. */
-export const JUMP_SAMPLING_RATE = 100
-
 export interface JumpResult {
   jumpHeightM: number
   jumpHeightCm: number
@@ -25,7 +22,6 @@ export async function computeJumpHeight(
   window: SensorReading[],
   massKg: number,
   wallAngleDeg: number,
-  samplingRate: number = JUMP_SAMPLING_RATE,
 ): Promise<JumpResult> {
   // `values` are SENSOR (wall) frame forces — the wall-decline rotation is NOT
   // baked in. This is exactly what the backend jump algorithm expects: it applies
@@ -41,6 +37,9 @@ export async function computeJumpHeight(
     foot.push([v[6] + v[9], v[7] + v[10], v[8] + v[11]])
   }
 
+  // samplingRate is deliberately NOT sent: the backend defaults it from the
+  // live stream's configured data interval (backend/phidget_config.json), the
+  // single source of truth — so a config change can't silently skew the physics.
   const response = await fetch(`${BACKEND_BASE_URL}/api/jump`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -49,7 +48,6 @@ export async function computeJumpHeight(
       foot,
       mass: massKg,
       wallAngle: wallAngleDeg,
-      samplingRate,
     }),
   })
 

@@ -6,6 +6,15 @@ import { saveSensorData, loadSensorData, clearSensorData } from "../utils/sensor
 // buffer size or `displaySampleCount`. Buffer keeps full resolution.
 const MAX_DISPLAY_POINTS = 1000
 
+// Bound the in-memory buffer (~1 hour at the ~100 Hz stream rate). Data is
+// buffered continuously while connected, so without a cap an all-day session
+// grows without limit — and the 5-second IndexedDB auto-save re-serializes the
+// whole buffer each time. Once over the cap the oldest chunk is dropped;
+// `sampleNumber` is absolute, so sample-number-based consumers (the jump test)
+// stay correct across trims, and display/save always use the newest samples.
+const MAX_BUFFER_SAMPLES = 360_000
+const TRIM_CHUNK_SAMPLES = 36_000
+
 function buildDisplaySlice(
   data: SensorReading[],
   count: number | "all",
@@ -127,11 +136,15 @@ export function useSensorData(
 
   const addSensorReading = useCallback((values: number[]) => {
     const sample = sampleCounterRef.current++
-    allSensorDataRef.current.push({
+    const buf = allSensorDataRef.current
+    buf.push({
       timestamp: Date.now(),
       sampleNumber: sample,
       values,
     })
+    if (buf.length > MAX_BUFFER_SAMPLES) {
+      buf.splice(0, TRIM_CHUNK_SAMPLES)
+    }
   }, [])
 
   const stopMockData = useCallback(() => {

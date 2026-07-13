@@ -130,7 +130,12 @@ export function useCalibrationProfiles(calibration: UseCalibrationReturn) {
     [run, calibration, setActiveName, refresh],
   )
 
-  /** Rename a profile, keeping its config. */
+  /**
+   * Rename a profile, keeping its calibration values untouched. Changing a
+   * profile's VALUES is deliberately not offered as raw number entry — the only
+   * way to change a calibration is the wizard (load the profile, recalibrate
+   * with weights, then save the changes back).
+   */
   const rename = useCallback(
     (profile: CalibrationProfile, newName: string) =>
       run(async () => {

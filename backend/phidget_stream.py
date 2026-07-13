@@ -27,8 +27,6 @@ import time
 from Phidget22.Devices.VoltageRatioInput import VoltageRatioInput
 from Phidget22.PhidgetException import PhidgetException
 from Phidget22.BridgeGain import BridgeGain
-from Phidget22.Net import Net
-from Phidget22.PhidgetServerType import PhidgetServerType
 
 CONFIG_PATH = Path(__file__).resolve().parent / "phidget_config.json"
 
@@ -109,17 +107,12 @@ class PhidgetStreamer:
             self._started = True
 
     def _open_channels(self):
-        # Also look for Phidgets served by a local Phidget Server (e.g. the
-        # Phidget Control Panel's built-in server). On macOS, direct USB access
-        # requires the Phidget kext (loaded after install + reboot); until
-        # then, the Control Panel — which has HID permission — owns the boards
-        # and serves them on localhost. Channels match local USB OR a server,
-        # whichever is available, so this works in both setups unchanged.
-        try:
-            Net.enableServerDiscovery(PhidgetServerType.PHIDGETSERVER_DEVICEREMOTE)
-        except PhidgetException:
-            pass  # discovery unavailable — local USB still works
-
+        # Direct USB access only. This requires the Phidget driver extension to
+        # be enabled once per machine (macOS: System Settings → Privacy &
+        # Security → allow the Phidgets driver). Network-server discovery was
+        # deliberately NOT enabled: with the driver working, a channel silently
+        # attaching through a Phidget Network Server (e.g. the Control Panel's)
+        # instead of USB would be nondeterministic and confusing to debug.
         serials = self.config["bridgeSerials"]
         channels = self.config["channels"]
         gain = _GAIN_MAP.get(int(self.config.get("bridgeGain", 128)),
@@ -148,6 +141,10 @@ class PhidgetStreamer:
 
                 def on_detach(ph, idx=idx):
                     self._attached[idx] = False
+                    # A detached channel must not keep broadcasting its last
+                    # reading: frozen-at-last-value is indistinguishable from a
+                    # real constant force in the charts and in recordings.
+                    self._values[idx] = 0.0
 
                 vri.setOnVoltageRatioChangeHandler(on_change)
                 vri.setOnAttachHandler(on_attach)
