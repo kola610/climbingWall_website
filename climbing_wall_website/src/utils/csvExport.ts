@@ -25,7 +25,11 @@ export function buildCsvContent(data: SensorReading[]): string {
   return headers + rows
 }
 
-export function exportToCsv(data: SensorReading[]): void {
+/**
+ * Download `data` as CSV. Defaults to a timestamped `force_data_*.csv`; the
+ * recordings tab passes its own name.
+ */
+export function exportToCsv(data: SensorReading[], filename?: string): void {
   const csvContent = buildCsvContent(data)
   if (!csvContent) return
 
@@ -33,10 +37,9 @@ export function exportToCsv(data: SensorReading[]): void {
   const url = URL.createObjectURL(blob)
   const link = document.createElement("a")
   link.href = url
-  link.download = `force_data_${new Date()
-    .toISOString()
-    .slice(0, 19)
-    .replace(/:/g, "-")}.csv`
+  link.download =
+    filename ??
+    `force_data_${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.csv`
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)

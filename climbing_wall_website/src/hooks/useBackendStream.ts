@@ -3,34 +3,24 @@ import { useState, useRef, useCallback, useEffect } from "react"
 const BACKEND_BASE_URL = import.meta.env.VITE_BACKEND_URL ?? ""
 
 /**
- * Manages a WebSocket connection to the backend sensor stream.
- *
- * This is a drop-in replacement for `useSerialPort`: it exposes the same
- * interface so the dashboard can swap one for the other without any other
- * changes. Instead of the Web Serial API talking to a Pi over USB, it opens a
- * WebSocket to the Flask backend (`/api/stream`) which reads the Phidget bridges
- * directly and broadcasts the same line format the Pi used to send (12 comma-
- * separated raw voltage ratios per sample, ~100 Hz).
+ * WebSocket connection to the backend sensor stream (`/api/stream`), which reads
+ * the Phidget bridges and broadcasts one line of 12 comma-separated raw voltage
+ * ratios per sample (~100 Hz).
  *
  * Responsibilities:
- *  - Open / close the WebSocket. `connect()` resolves only once the socket is
- *    actually open (or has failed) — mirroring useSerialPort, where the port was
- *    fully open before connect() returned. Resolving early would let the user
- *    start collection while `connected` is still false, spinning up the mock
- *    generator alongside the real stream and interleaving both into one buffer.
+ *  - Open / close the socket. `connect()` resolves only once the socket is
+ *    actually open (or has failed). Resolving early would let the user start
+ *    collection while `connected` is still false, spinning up the mock generator
+ *    alongside the real stream and interleaving both into one buffer.
  *  - Split incoming payloads into complete lines and deliver them via `onLine`.
  *  - After connecting, check `/api/phidgets/status` and expose `hardwareWarning`
- *    when only some of the 12 sensor channels are attached — otherwise a partly
+ *    when only some of the 12 channels are attached — otherwise a partly
  *    unplugged rig looks fully "Connected" while some channels silently read 0.
- *  - Expose a `mockModeActive` ref that is set to true when the socket can't be
- *    reached, so the rest of the app can fall back to generated data.
- *  - Keep `sendCommand` as a no-op so the interface matches (the Pi's serial
- *    commands like body-weight / wall-angle are no longer sent over the wire —
- *    jump params are handled computer-side).
+ *  - Expose a `mockModeActive` ref, set when the socket can't be reached, so the
+ *    rest of the app can fall back to generated data.
  *
- * The `onLine` callback is stored in a ref internally so callers never need to
- * worry about stale-closure issues — they can pass a fresh function every render
- * if needed.
+ * `onLine` is stored in a ref internally, so callers can pass a fresh function
+ * every render without stale-closure issues.
  */
 
 /** Shape of GET /api/phidgets/status (backend/phidget_stream.py). */
@@ -97,9 +87,9 @@ export function useBackendStream(onLine: (line: string) => void) {
         return
       }
 
-      // connect() settles exactly once, on the FIRST of open/error/close —
-      // errors resolve too (not reject) to match useSerialPort, which reported
-      // failures via the `error` state rather than throwing to the caller.
+      // connect() settles exactly once, on the FIRST of open/error/close.
+      // Errors resolve rather than reject: failures are reported via the `error`
+      // state, not thrown to the caller.
       let settled = false
       const settle = () => {
         if (!settled) {
@@ -148,8 +138,8 @@ export function useBackendStream(onLine: (line: string) => void) {
           if (socketRef.current === socket) socketRef.current = null
           setConnected(false)
           setHardwareWarning(null)
-          // An unexpected close (not triggered by disconnect()) means the backend
-          // is unreachable — mirror useSerialPort's fallback into mock mode.
+          // An unexpected close (not triggered by disconnect()) means the
+          // backend is unreachable — fall back to mock mode.
           if (!intentionalCloseRef.current) {
             setError("Sensor stream closed. Using mock data.")
             mockModeActiveRef.current = true
@@ -182,10 +172,6 @@ export function useBackendStream(onLine: (line: string) => void) {
     setHardwareWarning(null)
   }, [])
 
-  // No-op: the Pi's serial commands (body-weight / wall-angle) are no longer
-  // sent over the wire. Kept so the interface matches useSerialPort.
-  const sendCommand = useCallback(async (_command: string) => {}, [])
-
   // Close the socket when the component tree unmounts.
   useEffect(() => {
     return () => {
@@ -202,6 +188,5 @@ export function useBackendStream(onLine: (line: string) => void) {
     mockModeActive: mockModeActiveRef,
     connect,
     disconnect,
-    sendCommand,
   }
 }

@@ -7,6 +7,33 @@ import {
 } from "../constants/sensor"
 
 /**
+ * Evenly subsamples readings down to `maxPoints`, always keeping the last one so
+ * a chart's right edge is the newest sample. Returns the SAME array reference
+ * when no decimation is needed, so memoised consumers can skip work — callers
+ * holding a mutable buffer must copy it themselves.
+ */
+export function decimate(
+  data: SensorReading[],
+  maxPoints: number,
+): SensorReading[] {
+  if (data.length <= maxPoints) return data
+  const stride = Math.ceil(data.length / maxPoints)
+  const out: SensorReading[] = []
+  for (let i = 0; i < data.length; i += stride) out.push(data[i])
+  const last = data[data.length - 1]
+  if (out[out.length - 1] !== last) out.push(last)
+  return out
+}
+
+/** Euclidean magnitude ‖F‖ = √(X²+Y²+Z²) of one sensor within a reading. */
+export function sensorNorm(reading: SensorReading, sensorIndex: number): number {
+  const fx = reading.values[sensorIndex * 3]
+  const fy = reading.values[sensorIndex * 3 + 1]
+  const fz = reading.values[sensorIndex * 3 + 2]
+  return Math.sqrt(fx * fx + fy * fy + fz * fz)
+}
+
+/**
  * Simple moving-average filter — smooths out quantization stair-steps.
  */
 export function smoothData(data: number[], windowSize = 5): number[] {
@@ -65,19 +92,13 @@ export function buildSingleSensorComparisonData(
   labelA: string,
   labelB: string,
 ) {
-  const sensorNorm = (r: SensorReading): number => {
-    const fx = r.values[sensorIndex * 3]
-    const fy = r.values[sensorIndex * 3 + 1]
-    const fz = r.values[sensorIndex * 3 + 2]
-    return Math.sqrt(fx * fx + fy * fy + fz * fz)
-  }
-
   // A uses the sensor's primary colour (solid); B uses a darker contrasting
   // shade (dashed) so both lines are clearly visible even on light backgrounds.
   const colorA = MAGNITUDE_COLORS[sensorIndex].border
   const colorB = MAGNITUDE_COLORS[sensorIndex].borderB
-  const smoothedA = dataA.length ? smoothData(dataA.map(sensorNorm)) : []
-  const smoothedB = dataB.length ? smoothData(dataB.map(sensorNorm)) : []
+  const norm = (r: SensorReading) => sensorNorm(r, sensorIndex)
+  const smoothedA = dataA.length ? smoothData(dataA.map(norm)) : []
+  const smoothedB = dataB.length ? smoothData(dataB.map(norm)) : []
 
   return {
     datasets: [
@@ -112,13 +133,9 @@ export function buildSingleSensorComparisonData(
 export function buildNormChartData(displayData: SensorReading[]) {
   return {
     datasets: SENSOR_NAMES.map((sensor, sensorIndex) => {
-      const rawNorms = displayData.map((r) => {
-        const fx = r.values[sensorIndex * 3]
-        const fy = r.values[sensorIndex * 3 + 1]
-        const fz = r.values[sensorIndex * 3 + 2]
-        return Math.sqrt(fx * fx + fy * fy + fz * fz)
-      })
-      const smoothed = smoothData(rawNorms)
+      const smoothed = smoothData(
+        displayData.map((r) => sensorNorm(r, sensorIndex)),
+      )
       return {
         label: sensor,
         data: smoothed.map((y, i) => ({

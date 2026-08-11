@@ -11,7 +11,8 @@ import { useRecentRecordings } from "../../../hooks/useRecentRecordings"
 import type { ComparisonDataState } from "../../../hooks/useComparisonData"
 import { ComparisonView } from "../comparison/ComparisonView"
 import type { RecordingMeta } from "../../../utils/recordingApi"
-import { buildCsvContent } from "../../../utils/csvExport"
+import { exportToCsv } from "../../../utils/csvExport"
+import { BASE_CHART_OPTIONS } from "../../../utils/chartOptions"
 import { toDisplayFrameReadings } from "../../../utils/wallGeometry"
 
 interface RecentRecordingsTabProps {
@@ -169,13 +170,7 @@ export function RecentRecordingsTab({
   // y-axis at 0 is desirable; the top is left unset so Chart.js auto-scales it
   // to the largest value.
   const chartOptions = useMemo((): ChartOptions<"line"> => ({
-    responsive: true,
-    maintainAspectRatio: false,
-    // Animations off (not just zero-duration) keeps the tooltip crisp — the
-    // tooltip's opacity fade otherwise flickers on hover. `normalized` lets
-    // Chart.js binary-search the ascending sampleNumber x-axis when hit-testing.
-    animation: false,
-    normalized: true,
+    ...BASE_CHART_OPTIONS,
     scales: {
       y: {
         min: 0,
@@ -186,18 +181,6 @@ export function RecentRecordingsTab({
         type: "linear",
         title: { display: true, text: "Sample" },
         ticks: { maxTicksLimit: 10 },
-      },
-    },
-    interaction: { mode: "index", intersect: false },
-    plugins: {
-      legend: { position: "top" },
-      tooltip: {
-        enabled: true,
-        animation: false,
-        position: "nearest",
-        callbacks: {
-          title: (items) => `Sample: ${items[0]?.parsed?.x ?? ""}`,
-        },
       },
     },
   }), [])
@@ -234,24 +217,12 @@ export function RecentRecordingsTab({
 
   const handleExportSelected = () => {
     if (!selectedMeta || selectedData.length === 0) return
-    const csvContent = buildCsvContent(selectedData)
-    if (!csvContent) return
-
     const safeLabel = selectedMeta.label
       .trim()
       .replace(/[^a-zA-Z0-9_-]+/g, "_")
       .replace(/^_+|_+$/g, "")
       .slice(0, 80) || "recording"
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement("a")
-    link.href = url
-    link.download = `${safeLabel}_${selectedMeta.id}.csv`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
+    exportToCsv(selectedData, `${safeLabel}_${selectedMeta.id}.csv`)
   }
 
   return (

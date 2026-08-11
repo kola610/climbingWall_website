@@ -3,7 +3,7 @@ import { Line } from "react-chartjs-2"
 import type { ChartOptions } from "chart.js"
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card"
 import { Button } from "../../ui/button"
-import { buildComponentChartData } from "../../../utils/dataProcessing"
+import { buildComponentChartData, decimate } from "../../../utils/dataProcessing"
 import { SENSOR_NAMES, MAGNITUDE_COLORS } from "../../../constants/sensor"
 import { Maximize2, X } from "lucide-react"
 import { SensorToggleBar } from "../SensorToggleBar"
@@ -31,25 +31,6 @@ interface ComponentsTabProps {
  * each chart gets ~250 points; with 1 visible it keeps the full ~1000.
  */
 const TOTAL_POINT_BUDGET = 1000
-
-/**
- * Evenly subsamples readings down to `maxPoints` (keeping the last point) so
- * each per-sensor chart renders a bounded number of points regardless of how
- * many samples the display window holds. Returns the same array reference when
- * no decimation is needed so memoised consumers can skip work.
- */
-function decimateReadings(
-  data: SensorReading[],
-  maxPoints: number,
-): SensorReading[] {
-  if (data.length <= maxPoints) return data
-  const stride = Math.ceil(data.length / maxPoints)
-  const out: SensorReading[] = []
-  for (let i = 0; i < data.length; i += stride) out.push(data[i])
-  const last = data[data.length - 1]
-  if (out[out.length - 1] !== last) out.push(last)
-  return out
-}
 
 /**
  * A single per-sensor X/Y/Z chart. Memoised so it only re-renders (and re-runs
@@ -122,13 +103,13 @@ export function ComponentsTab({
     Math.floor(TOTAL_POINT_BUDGET / Math.max(1, visibleCount)),
   )
   const gridChartData = useMemo(
-    () => decimateReadings(displayData, perChartBudget),
+    () => decimate(displayData, perChartBudget),
     [displayData, perChartBudget],
   )
 
   // The expanded overlay is a single chart, so it can afford the full budget.
   const expandedChartData = useMemo(
-    () => decimateReadings(displayData, TOTAL_POINT_BUDGET),
+    () => decimate(displayData, TOTAL_POINT_BUDGET),
     [displayData],
   )
 
@@ -143,10 +124,6 @@ export function ComponentsTab({
 
   const chartHeight = visibleCount <= 2 ? 340 : 250
 
-
-
-// comment this out to hide the sensor toggle bar
-// {false && <SensorToggleBar activeSensors={activeSensors} onToggle={toggleSensor} />}  !!!
   return (
     <>
       <Card>
@@ -183,8 +160,7 @@ export function ComponentsTab({
 
           {displayData.length > 0 && (
             <div className="mt-3">
-               {true && <SensorToggleBar activeSensors={activeSensors} onToggle={toggleSensor} />}  
-               
+              <SensorToggleBar activeSensors={activeSensors} onToggle={toggleSensor} />
             </div>
           )}
         </CardHeader>

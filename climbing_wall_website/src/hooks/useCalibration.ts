@@ -6,6 +6,7 @@ import {
   persistCalibration,
   defaultCalibration,
 } from "../utils/calibration"
+import { useChannelRing } from "./useChannelRing"
 
 /** Samples averaged per capture (~1.5 s at the ~100 Hz stream rate). */
 export const DEFAULT_CAPTURE_SAMPLES = 150
@@ -74,11 +75,7 @@ export function useCalibration() {
   // Ring buffer of the last STABILITY_WINDOW signed-raw samples, fed at full
   // stream rate so the live "is the weight still swinging?" readout sees the real
   // oscillation (not the 10 Hz UI poll, which would alias a fast swing).
-  const stabilityBufRef = useRef<number[][]>(
-    Array.from({ length: STABILITY_WINDOW }, () => new Array(12).fill(0)),
-  )
-  const stabilityHeadRef = useRef(0)
-  const stabilityFillRef = useRef(0)
+  const stabilityRing = useChannelRing(STABILITY_WINDOW)
 
   // Load persisted calibration once on mount, then sync UI state.
   useEffect(() => {
@@ -97,12 +94,7 @@ export function useCalibration() {
 
   const feedSample = useCallback((signedRaw: number[]) => {
     latestSampleRef.current = signedRaw
-
-    // Record into the rolling stability buffer (in-place copy, no allocation).
-    const row = stabilityBufRef.current[stabilityHeadRef.current]
-    for (let i = 0; i < 12; i++) row[i] = signedRaw[i] ?? 0
-    stabilityHeadRef.current = (stabilityHeadRef.current + 1) % STABILITY_WINDOW
-    if (stabilityFillRef.current < STABILITY_WINDOW) stabilityFillRef.current += 1
+    stabilityRing.feed(signedRaw)
 
     const cap = captureRef.current
     if (!cap) return
@@ -118,7 +110,7 @@ export function useCalibration() {
       captureRef.current = null
       cap.resolve(finalizeCapture(cap))
     }
-  }, [])
+  }, [stabilityRing])
 
   const getLatestSample = useCallback(() => latestSampleRef.current, [])
 
@@ -127,25 +119,10 @@ export function useCalibration() {
    * of samples — the live signal for "is the weight still swinging?". Returns
    * null until enough samples have arrived to be meaningful.
    */
-  const getRecentStds = useCallback((): number[] | null => {
-    const n = Math.min(stabilityFillRef.current, STABILITY_WINDOW)
-    if (n < STABILITY_MIN_SAMPLES) return null
-    const buf = stabilityBufRef.current
-    const sums = new Array(12).fill(0)
-    const sumSqs = new Array(12).fill(0)
-    for (let k = 0; k < n; k++) {
-      const r = buf[k]
-      for (let i = 0; i < 12; i++) {
-        const v = r[i] ?? 0
-        sums[i] += v
-        sumSqs[i] += v * v
-      }
-    }
-    return sums.map((s, i) => {
-      const mean = s / n
-      return Math.sqrt(Math.max(0, sumSqs[i] / n - mean * mean))
-    })
-  }, [])
+  const getRecentStds = useCallback(
+    (): number[] | null => stabilityRing.std(STABILITY_MIN_SAMPLES),
+    [stabilityRing],
+  )
 
   /**
    * Average the next `sampleCount` signed-raw samples across all 12 channels.

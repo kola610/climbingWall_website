@@ -6,27 +6,13 @@ export type ParsedSerialMessage =
   | { type: "unknown" }
 
 /**
- * Reorders the 4 incoming sensor groups so each physical sensor lines up with
- * the matching GUI component (SENSOR_NAMES order: Left Hand, Right Hand,
- * Left Foot, Right Foot).
+ * Hardware wiring: the device streams four sensor groups of 3 values each, in
+ * the order (verified empirically by loading each sensor):
+ *   group 0 = Left Foot, 1 = Left Hand, 2 = Right Foot, 3 = Right Hand
  *
- * As of the Method-A migration the Pi streams RAW voltage ratios (tiny, ~1e-6),
- * not Newtons — ALL calibration now happens here. The transform pipeline below
- * (remap -> sign -> offset -> scale) is structurally unchanged; only the meaning
- * of the stored constants changed (see applyRuntimeOffset / applyAxisScales).
- *
- * The device streams the four sensor groups (3 values each). The raw group ->
- * body-part wiring was verified empirically by moving each sensor:
- *   group 0 = Left Foot
- *   group 1 = Left Hand
- *   group 2 = Right Foot
- *   group 3 = Right Hand
- *
- * To feed the GUI slots [Left Hand, Right Hand, Left Foot, Right Foot] we pull
- * from groups [1, 3, 0, 2] respectively.
- *
- * This wiring is fixed hardware routing, so it stays a local constant (it is not
- * part of the runtime-calibratable values).
+ * The GUI slots are [Left Hand, Right Hand, Left Foot, Right Foot], so we pull
+ * from groups [1, 3, 0, 2]. Fixed routing, hence a local constant rather than
+ * part of the runtime-calibratable values.
  */
 const SENSOR_GROUP_ORDER = [1, 3, 0, 2] as const
 
@@ -37,18 +23,11 @@ function remapSensorGroups(values: number[]): number[] {
 }
 
 /**
- * Per-axis sign correction, applied AFTER remapSensorGroups so the entries are
- * in GUI-slot order: [Left Hand, Right Hand, Left Foot, Right Foot], each as
- * (X, Y, Z).
- *
- * Convention the hardware should report:
+ * Per-axis sign correction. Establishes the convention the hardware should
+ * report, in GUI-slot order:
  *   pulling away from the wall (toward the person) = +Z
  *   push to the right                              = +Y
  *   push toward the top                            = +X
- *
- * Signs are part of the calibration config but are not edited by the calibration
- * wizard (they are a fixed convention); they are sourced from the store so the
- * whole transform is driven by one place.
  */
 function applyAxisSigns(values: number[]): number[] {
   const { axisSigns } = getCalibration()
@@ -56,16 +35,10 @@ function applyAxisSigns(values: number[]): number[] {
 }
 
 /**
- * Zero offset per axis, applied AFTER applyAxisSigns so the entries are in
- * GUI-slot order: [Left Hand, Right Hand, Left Foot, Right Foot], each as (X, Y, Z).
- *
- * These are the zero-load RAW voltage ratios (tiny ~1e-6 numbers, in signed-raw
- * space) subtracted from every incoming sample BEFORE the axis scale, so forces
- * read zero at rest. The offset is NO LONGER part of the persisted calibration:
- * it is the volatile, runtime-computed tare from `runtimeOffset.ts`, set by the
- * user with the "Zero Sensors" button (see useTareOffset). Until a zero is taken
- * the offset is all-zeros (readings are simply un-tared). The pipeline position
- * is identical to the old persisted ground offset — only the source changed.
+ * Zero-load offset in signed-raw space (tiny ~1e-6 voltage ratios), subtracted
+ * before the scale so forces read zero at rest. This is the volatile runtime
+ * tare (see runtimeOffset.ts) set by "Zero Sensors" — not persisted calibration.
+ * All-zeros until the user tares, i.e. readings are simply un-tared.
  */
 function applyRuntimeOffset(values: number[]): number[] {
   const offset = getRuntimeOffset()
@@ -73,15 +46,10 @@ function applyRuntimeOffset(values: number[]): number[] {
 }
 
 /**
- * Per-axis scale factor, applied AFTER applyRuntimeOffset so the entries are in
- * GUI-slot order: [Left Hand, Right Hand, Left Foot, Right Foot], each as (X, Y, Z).
- *
- * Each scale maps (raw − offset) to a force in Newtons. Since Method A the input
- * is a raw voltage ratio (~1e-6), so these scales are large (Newtons per
- * raw-voltage-ratio unit, ~1e6–1e7). The committed defaults are seeded from the
- * Pi's old per-board gains (gain * 9.81 * 0.001, sign included). The calibration
- * wizard derives it as the least-squares slope of force vs. (raw − offset) over a
- * known-weight sweep (0 / 10 / 20 kg), so a real 100 N load reads ~100 N.
+ * Per-axis scale mapping (raw − offset) to Newtons. The input is a raw voltage
+ * ratio (~1e-6), so these are large (~1e6–1e7 N per raw unit). The wizard
+ * derives each as the least-squares slope of force vs. (raw − offset) over a
+ * known-weight sweep, so a real 100 N load reads ~100 N.
  */
 function applyAxisScales(values: number[]): number[] {
   const { axisScales } = getCalibration()
@@ -89,37 +57,25 @@ function applyAxisScales(values: number[]): number[] {
 }
 
 /**
- * Parses a single complete serial line into a typed message.
- * Keeps the serial routing logic in one testable place, separate from both
- * the transport layer (useSerialPort) and the domain handlers.
+ * Parses one complete serial line (12 comma-separated raw voltage ratios).
  *
- * For sensor lines we expose two arrays:
- *   - `values`:    the fully-processed SENSOR-frame forces (post remap → sign →
- *                  offset → scale). This is the canonical frame stored everywhere
- *                  (live buffer, IndexedDB, backend CSV). The wall-decline angle θ
- *                  is NOT applied here — world-frame display is an opt-in, UI-only
- *                  rotation performed at render time (see wallGeometry).
- *   - `signedRaw`: the post-sign, pre-offset, pre-scale values. The calibration
- *                  wizard averages these so its result is independent of the
- *                  offset/scale currently in effect.
+ * Exposes two arrays:
+ *   - `values`:    fully-processed SENSOR-frame forces (remap → sign → offset →
+ *                  scale). This is the canonical frame stored everywhere (live
+ *                  buffer, IndexedDB, backend CSV). The wall-decline angle θ is
+ *                  NOT applied — world-frame display is an opt-in, UI-only
+ *                  rotation done at render time (see wallGeometry).
+ *   - `signedRaw`: post-sign, pre-offset, pre-scale. The calibration wizard and
+ *                  the tare average these, so their results are independent of
+ *                  the offset/scale currently in effect.
  */
 export function parseSerialLine(line: string): ParsedSerialMessage {
-  // Jump height is no longer reported over serial (Method A): it is computed on
-  // the computer from the calibrated force buffer. Only raw sensor lines arrive.
   const values = line.split(",").map((v) => parseFloat(v.trim()))
-  if (
-    values.length === 12 &&
-    values.every((v) => !isNaN(v) && isFinite(v))
-  ) {
+  if (values.length === 12 && values.every((v) => !isNaN(v) && isFinite(v))) {
     const signedRaw = applyAxisSigns(remapSensorGroups(values))
-    // Per-board calibrated forces in the SENSOR (board) frame: X = in-plane
-    // (along the wall, up-slope), Z = normal (out of the wall), Y = sideways.
-    // This is the canonical stored frame — the wall-decline rotation is applied
-    // only at display time when the user explicitly opts into the world view.
-    const sensorForces = applyAxisScales(applyRuntimeOffset(signedRaw))
     return {
       type: "sensor",
-      values: sensorForces,
+      values: applyAxisScales(applyRuntimeOffset(signedRaw)),
       signedRaw,
     }
   }

@@ -34,6 +34,28 @@ type ChartSide = "A" | "B"
 // We use plain objects { current } instead of React refs so that the plugin
 // factories can be created outside of components without any React dependency.
 //
+/**
+ * The slice of the Chart.js instance this plugin drives on its peer chart.
+ * Everything is optional: the peer may not be mounted, and these are internals
+ * react-chartjs-2 does not surface on its ref type.
+ */
+type ActiveElement = { datasetIndex: number; index: number }
+type PeerChart = {
+  data?: { datasets?: Array<{ data?: Array<{ x: number; y: number }> }> }
+  scales?: {
+    x?: { getPixelForValue: (v: number) => number; left: number; right: number }
+    y?: { top: number; bottom: number }
+  }
+  setActiveElements?: (elements: ActiveElement[]) => void
+  tooltip?: {
+    setActiveElements?: (
+      elements: ActiveElement[],
+      position: { x: number; y: number },
+    ) => void
+  }
+  update?: (mode?: string) => void
+} | null
+
 function makeCrosshairPlugin(
   side: ChartSide,
   markerA: { current: number | null },
@@ -45,17 +67,10 @@ function makeCrosshairPlugin(
   activeSide: { current: ChartSide | null },
   peerRef: { current: ChartJS<"line"> | null },
 ) {
+  const getPeer = (): PeerChart => peerRef.current as unknown as PeerChart
+
   const clearPeerTooltip = () => {
-    const peer = peerRef.current as unknown as {
-      setActiveElements?: (elements: Array<{ datasetIndex: number; index: number }>) => void
-      tooltip?: {
-        setActiveElements?: (
-          elements: Array<{ datasetIndex: number; index: number }>,
-          position: { x: number; y: number },
-        ) => void
-      }
-      update?: (mode?: string) => void
-    } | null
+    const peer = getPeer()
     if (!peer) return
     peer.setActiveElements?.([])
     peer.tooltip?.setActiveElements?.([], { x: 0, y: 0 })
@@ -63,23 +78,7 @@ function makeCrosshairPlugin(
   }
 
   const syncPeerTooltipAtX = (xValue: number | null) => {
-    const peer = peerRef.current as unknown as {
-      data?: {
-        datasets?: Array<{ data?: Array<{ x: number; y: number }> }>
-      }
-      scales?: {
-        x?: { getPixelForValue: (v: number) => number; left: number; right: number }
-        y?: { top: number; bottom: number }
-      }
-      setActiveElements?: (elements: Array<{ datasetIndex: number; index: number }>) => void
-      tooltip?: {
-        setActiveElements?: (
-          elements: Array<{ datasetIndex: number; index: number }>,
-          position: { x: number; y: number },
-        ) => void
-      }
-      update?: (mode?: string) => void
-    } | null
+    const peer = getPeer()
     if (!peer || xValue == null) {
       clearPeerTooltip()
       return

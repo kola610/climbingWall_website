@@ -6,13 +6,18 @@ Calibration converts raw voltage ratios from the 4 load cell boards into correct
 
 ## What is stored
 
-The calibration config (`CalibrationConfig`) is 3 arrays of 12 numbers each, in **GUI-slot order**: `[Left Hand, Right Hand, Left Foot, Right Foot] × (X, Y, Z)`.
+The calibration config (`CalibrationConfig`) is **2** arrays of 12 numbers each, in **GUI-slot order**: `[Left Hand, Right Hand, Left Foot, Right Foot] × (X, Y, Z)`.
 
 | Array | Meaning |
 |---|---|
 | `axisSigns` | ±1 per channel — flips axes that are physically wired backwards |
-| `groundOffsets` | zero-load raw voltage reading per channel (subtracted before scaling) |
 | `axisScales` | Newtons per raw-voltage-ratio unit per channel (the slope) |
+
+> **The zero offset is not stored here.** It used to be (`groundOffsets`), but it is now
+> a volatile runtime tare — recomputed whenever the user presses **Zero Sensors**, cached
+> in its own localStorage key, and never written to the backend. See
+> [`src/utils/runtimeOffset.ts`](climbing_wall_website/src/utils/runtimeOffset.ts). What
+> stays in the calibration is only what genuinely belongs to the hardware.
 
 Committed default values live in [`src/config/calibration_settings.json`](climbing_wall_website/src/config/calibration_settings.json). At runtime the active config is a module-level variable in [`src/utils/calibration.ts`](climbing_wall_website/src/utils/calibration.ts).
 
@@ -32,13 +37,13 @@ This is the **sensor frame**, and it is the canonical frame everything is stored
 
 ## Config priority at startup
 
-[`loadPersistedCalibration()`](climbing_wall_website/src/utils/calibration.ts:194) in `calibration.ts` tries sources in order:
+[`loadPersistedCalibration()`](climbing_wall_website/src/utils/calibration.ts) in `calibration.ts` tries sources in order:
 
 1. **Backend file** — `GET /api/calibration` → reads `calibration_settings.json` (the authoritative copy)
 2. **localStorage** — key `"calibration"` (works offline / expo mode with no backend)
 3. **Build-time defaults** — the JSON import baked into the bundle
 
-Called once on mount inside [`useCalibration`](climbing_wall_website/src/hooks/useCalibration.ts:46).
+Called once on mount inside [`useCalibration`](climbing_wall_website/src/hooks/useCalibration.ts).
 
 ---
 
@@ -81,7 +86,7 @@ Z (normal / out-of-wall): W · sin θ
 
 So **one hang sweep** at 0 / 10 / 20 kg calibrates both axes simultaneously. This is only valid when `|θ| ≥ 1°`; at θ = 0 the hang puts no load on Z.
 
-**Code** — [`computeHangCalibration`](climbing_wall_website/src/utils/calibration.ts:164):
+**Code** — [`computeHangCalibration`](climbing_wall_website/src/utils/calibration.ts):
 
 ```ts
 const t = (declineDeg * Math.PI) / 180
@@ -100,13 +105,13 @@ Y is sideways. The user pulls a known weight left or right. The sign depends on 
 - **Left boards** (Left Hand, Left Foot): pull left → `forceDirection = -1` (the fitted scale flips so a rightward force reads +Y)
 - **Right boards** (Right Hand, Right Foot): pull right → `forceDirection = +1`
 
-Direction is encoded in [`CALIBRATION_FORCE_DIRECTION`](climbing_wall_website/src/utils/calibration.ts:49).
+Direction is encoded in [`Y_FORCE_DIRECTION_PER_BOARD`](climbing_wall_website/src/utils/calibration.ts) — one entry per board, `[-1, 1, -1, 1]`. X and Z need no such table: their applied directions come from θ (`−cosθ`, `+sinθ`).
 
 ---
 
 ## `computeAxisCalibration` — the math
 
-[`computeAxisCalibration(rawsPerStep, weightsKg, forceDirection)`](climbing_wall_website/src/utils/calibration.ts:115):
+[`computeAxisCalibration(rawsPerStep, weightsKg, forceDirection)`](climbing_wall_website/src/utils/calibration.ts):
 
 1. **offset** = `rawsPerStep[0]` (zero-load reading)
 2. For each step: `x_k = rawsPerStep[k] - offset`, `f_k = forceDirection × weightsKg[k] × 9.80665`
@@ -120,7 +125,7 @@ If the denominator is near zero (the sensor didn't respond across weights), scal
 
 ## Sample capture machinery (`useCalibration.ts`)
 
-Every incoming serial sample is routed to [`calibration.feedSample(signedRaw)`](climbing_wall_website/src/hooks/useCalibration.ts:59). This is the **post-sign, pre-offset, pre-scale** array — independent of whatever offset/scale is currently active, so the wizard reads true hardware values.
+Every incoming serial sample is routed to [`calibration.feedSample(signedRaw)`](climbing_wall_website/src/hooks/useCalibration.ts). This is the **post-sign, pre-offset, pre-scale** array — independent of whatever offset/scale is currently active, so the wizard reads true hardware values.
 
 When the user clicks **Capture** for a step:
 
@@ -135,16 +140,30 @@ Timeout of 8 s rejects the capture if no samples arrive (device not connected).
 
 ## Saving calibration
 
-After all steps are captured and the math runs, **Save X & Z** or **Save Y** calls [`commitChannels`](climbing_wall_website/src/hooks/useCalibration.ts:122):
+After all steps are captured and the math runs, **Save X & Z** or **Save Y** calls [`commitChannels`](climbing_wall_website/src/hooks/useCalibration.ts):
 
 1. Reads the current config
-2. Writes new `groundOffsets[idx]` and `axisScales[idx]` for the calibrated channels
-3. Calls [`persistCalibration(next)`](climbing_wall_website/src/utils/calibration.ts:229):
-   - Updates the live in-memory store (takes effect on the **next serial sample**)
+2. Writes new `axisScales[idx]` for the calibrated channels — **only the scale**; the offset computed during the fit is discarded, since zeroing is the live tare
+3. Calls [`persistCalibration(next)`](climbing_wall_website/src/utils/calibration.ts):
+   - Updates the live in-memory store (takes effect on the **next sample**)
    - Writes to `localStorage["calibration"]`
    - POSTs to `POST /api/calibration` → backend overwrites `calibration_settings.json`
 
-The backend validates that all three arrays have exactly 12 finite numbers before writing.
+The backend validates that both arrays have exactly 12 numbers before writing.
+
+---
+
+## Named profiles
+
+A **profile** is a saved calibration under a user-given name — the durable library, kept
+in `backend/calibration_profiles.json` (gitignored, so a fresh clone has none). The
+*active* calibration is still the single `calibration_settings.json`; selecting a profile
+just restores its values there.
+
+Managed by [`useCalibrationProfiles`](climbing_wall_website/src/hooks/useCalibrationProfiles.ts)
+and the profiles modal: save-as-new, update-in-place, select, duplicate, rename, delete.
+Changing a profile's *values* is deliberately never offered as raw number entry — the
+only way is to load it, recalibrate with real weights, and save the changes back.
 
 ---
 

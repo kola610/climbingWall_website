@@ -1,13 +1,8 @@
 import defaultSettings from "../config/calibration_settings.json"
 
 /**
- * Runtime calibration store.
- *
- * The transform in `serialParser.ts` needs per-axis sign and scale values (the
- * zero offset is handled separately at runtime — see runtimeOffset.ts).
- * Historically these were hardcoded `as const` arrays that required a source edit
- * and rebuild to change. This module makes them a live, persistable store so the
- * in-app calibration wizard can update them at runtime.
+ * Runtime calibration store: the per-axis sign and scale values `serialParser`
+ * applies to every sample, live-updatable by the in-app wizard.
  *
  * Sources of truth, in priority order at startup (see `loadPersistedCalibration`):
  *   1. backend file  (GET /api/calibration → src/config/calibration_settings.json)
@@ -17,10 +12,9 @@ import defaultSettings from "../config/calibration_settings.json"
  * Both arrays are length-12, in GUI-slot order
  * [Left Hand, Right Hand, Left Foot, Right Foot] × (X, Y, Z).
  *
- * NOTE: the zero offset is deliberately NOT here. Offsets are no longer saved at
- * calibration time; they are computed at runtime (see runtimeOffset.ts / the
- * "Zero Sensors" tare), keeping the persisted calibration to the two things that
- * genuinely belong with the hardware: axis switches and scales.
+ * The zero offset is deliberately NOT here — it is the volatile runtime tare
+ * (runtimeOffset.ts), keeping this to the two things that genuinely belong with
+ * the hardware.
  */
 export interface CalibrationConfig {
   axisSigns: number[]
@@ -38,29 +32,16 @@ export const CALIBRATION_STORAGE_KEY = "calibration"
  *   +Y → to the right
  *   +Z → along the wall normal, out of the wall (toward the climber)
  *
- * `CALIBRATION_FORCE_DIRECTION[i]` is the sign of the convention-axis component
- * of the load applied during the standard calibration procedure for channel `i`
- * (GUI-slot order: [Left Hand, Right Hand, Left Foot, Right Foot] × (X, Y, Z)).
+ * Sign of the applied Y load during calibration, per board (GUI-slot order:
+ * [Left Hand, Right Hand, Left Foot, Right Foot]). The LEFT-side boards are
+ * pulled to the LEFT → −Y, so the fitted scale flips and a rightward force then
+ * reads +Y uniformly across all four.
  *
- * Since the single-hang method (computeHangCalibration), X and Z are NO LONGER
- * calibrated from this array: a hang loads the in-plane (X) axis by −cosθ and the
- * normal (Z) axis by +sinθ (derived from the wall decline θ), so those directions
- * come from θ, not from here. This array is now used only for the Y axis:
- *   - Y: pull right → +Y on the right-side boards; the LEFT-side boards (Left
- *        Hand, Left Foot) are pulled to the LEFT → −Y, so the fitted scale flips
- *        and a rightward force reads +Y uniformly.
- * The X (−1) / Z (+1) entries are kept only to document the convention.
+ * X and Z are not listed: since the single-hang method their applied directions
+ * are derived from the wall decline θ (−cosθ and +sinθ, see
+ * computeHangCalibration), not from a table.
  */
-export const CALIBRATION_FORCE_DIRECTION: number[] = [
-  // Left Hand:   X(hung load = down → −1),  Y(pulled left → −1),  Z
-  -1, -1, 1,
-  // Right Hand:  X(hung load = down → −1),  Y,  Z
-  -1, 1, 1,
-  // Left Foot:   X(hung load = down → −1),  Y(pulled left → −1),  Z
-  -1, -1, 1,
-  // Right Foot:  X(hung load = down → −1),  Y,  Z
-  -1, 1, 1,
-]
+export const Y_FORCE_DIRECTION_PER_BOARD: number[] = [-1, 1, -1, 1]
 
 function clone(cfg: CalibrationConfig): CalibrationConfig {
   return {
@@ -86,14 +67,10 @@ export function setCalibration(cfg: CalibrationConfig): void {
 }
 
 /**
- * Flat channel indices (board*3 + axis, GUI-slot order) whose scale still equals
- * the built-in default — i.e. axes that were never individually calibrated and
- * therefore fall back to the factory default scale. The calibration wizard uses
- * this to warn the user before they finish with axes still on defaults. A
- * calibrated axis always carries a computed scale that differs from the seed, so
- * exact equality is a reliable "untouched" test. (The zero offset is no longer
- * part of the persisted calibration, so it plays no role here — see
- * runtimeOffset.ts.)
+ * Flat channel indices (board*3 + axis) whose scale still equals the built-in
+ * default — i.e. axes never individually calibrated. The wizard warns on these
+ * before finishing. A calibrated axis always carries a computed scale that
+ * differs from the seed, so exact equality is a reliable "untouched" test.
  */
 export function findDefaultChannels(config: CalibrationConfig): number[] {
   const def = defaultCalibration()
@@ -107,12 +84,11 @@ export function findDefaultChannels(config: CalibrationConfig): number[] {
 }
 
 /**
- * Derive an axis's ground offset and scale from a 0/10/20-kg (etc.) sweep.
+ * Derive an axis's zero offset and scale from a 0/10/20-kg (etc.) sweep.
  *
- * `rawsPerStep[k]` is the averaged signed-raw reading (post-sign, pre-offset,
- * pre-scale) captured with `weightsKg[k]` applied. The offset is simply the
- * zero-load reading; the scale is the least-squares slope of force vs.
- * (raw − offset) constrained through the origin, giving N per raw unit so that
+ * `rawsPerStep[k]` is the averaged signed-raw reading captured with
+ * `weightsKg[k]` applied. The offset is the zero-load reading; the scale is the
+ * least-squares slope of force vs. (raw − offset) through the origin, so
  * `(raw − offset) * scale ≈ force_N`.
  */
 export function computeAxisCalibration(

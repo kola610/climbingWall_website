@@ -8,26 +8,20 @@ export interface JumpResult {
 }
 
 /**
- * Build per-hand / per-foot summed Newton arrays from a window of calibrated
- * sensor readings and POST them to the backend, which runs the proven
- * numpy/scipy jump-height algorithm (Method A: all computation is computer-side).
+ * Sum a window of calibrated readings into per-hand / per-foot Newton arrays and
+ * POST them to the backend's numpy/scipy jump-height algorithm.
  *
  * `values` are in GUI-slot order [Left Hand, Right Hand, Left Foot, Right Foot]
- * × (X, Y, Z), already calibrated to Newtons by serialParser. We sum the two
- * hands and the two feet — this is the physically correct grouping per the
- * empirically-verified wiring (the Pi's old get_hand_foot_forces summed by
- * board side, which mislabeled hands vs. feet).
+ * × (X, Y, Z), already calibrated to Newtons by serialParser, in the SENSOR
+ * (wall) frame — the wall-decline rotation is NOT baked in. That is what the
+ * backend expects: it applies the wall-angle projection itself (using
+ * `wallAngleDeg`), so the tilt is corrected exactly once.
  */
 export async function computeJumpHeight(
   window: SensorReading[],
   massKg: number,
   wallAngleDeg: number,
 ): Promise<JumpResult> {
-  // `values` are SENSOR (wall) frame forces — the wall-decline rotation is NOT
-  // baked in. This is exactly what the backend jump algorithm expects: it applies
-  // the wall-angle projection to global vertical itself (using `wallAngleDeg`),
-  // so the forces are corrected for the tilt exactly once. (Before the frame
-  // inversion the buffer was world-frame and this double-corrected.)
   const hand: number[][] = []
   const foot: number[][] = []
   for (const { values: v } of window) {

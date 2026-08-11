@@ -1,22 +1,17 @@
 /**
- * Volatile, runtime-only zero offset (a.k.a. tare) — the counterpart to the
- * persisted calibration in `calibration.ts`.
+ * Volatile, runtime-only zero offset (tare) — the counterpart to the persisted
+ * calibration in `calibration.ts`.
  *
- * Clean separation of concerns:
- *   - calibration.ts  : axis switches + scales. Computed against known weights,
- *                       SAVED at calibration time (localStorage + backend file).
- *   - runtimeOffset.ts : the zero offset. Recomputed at runtime by averaging
- *                        recent samples whenever the user taps "Zero / Tare".
- *                        It is cached in its OWN localStorage key so a reload
- *                        keeps the last zero in effect (no forced re-zeroing) —
- *                        but it is never part of the calibration config and is
- *                        never written to the backend.
+ *   - calibration.ts   : axis switches + scales. Measured against known weights,
+ *                        saved to localStorage + the backend file.
+ *   - runtimeOffset.ts : the zero. Recomputed whenever the user taps "Zero",
+ *                        cached under its OWN localStorage key so a reload keeps
+ *                        the last zero in effect. Never part of the calibration
+ *                        config, never written to the backend.
  *
- * The offset is held in SIGNED-RAW space (post axis-sign, pre-scale) and is
- * subtracted by `serialParser` in exactly the slot the old persisted
- * `groundOffsets` used to occupy, so the per-reading order of operations
- * (sign → offset → scale) is unchanged — only the source of the offset moved
- * from the saved config to this live, user-controlled store.
+ * Held in SIGNED-RAW space (post axis-sign, pre-scale) — the same space
+ * `serialParser` subtracts it in, so the average is a valid zero regardless of
+ * the scale in effect.
  */
 
 const N_CHANNELS = 12
@@ -24,11 +19,9 @@ const N_CHANNELS = 12
 const zeros = (): number[] => new Array(N_CHANNELS).fill(0)
 
 /**
- * Number of samples averaged to compute a zero. At the ~100 Hz stream rate this
- * is ~1.5 s — long enough to average out sensor noise, short enough that the
- * tare reflects the sensor's state *now* (a longer window would fold in load
- * applied seconds ago) and that "Zero" feels instant. The whole averaging window
- * is tuned here, in one named place.
+ * Samples averaged to compute a zero. ~1.5 s at the ~100 Hz stream rate — long
+ * enough to average out noise, short enough that the tare reflects the sensor's
+ * state *now* rather than folding in load applied seconds ago.
  */
 export const TARE_WINDOW_SAMPLES = 150
 
@@ -93,9 +86,9 @@ export function getRuntimeOffset(): number[] {
 }
 
 /**
- * Install a freshly averaged zero offset (defensively copied + length-clamped)
- * and cache it to localStorage so it survives reloads. Returns the timestamp it
- * was stored under, so the caller's UI state matches the persisted value exactly.
+ * Install a freshly averaged zero (defensively copied + length-clamped) and
+ * cache it. Returns the timestamp it was stored under, so the caller's UI state
+ * matches the persisted value exactly.
  */
 export function setRuntimeOffset(offset: number[]): number {
   const next = zeros()

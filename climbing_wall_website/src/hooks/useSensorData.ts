@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import type { SensorReading } from "../types/sensor"
+import { decimate } from "../utils/dataProcessing"
 import { saveSensorData, loadSensorData, clearSensorData } from "../utils/sensorStorage"
 
 // Cap points fed to Chart.js so render cost stays bounded regardless of
@@ -20,13 +21,11 @@ function buildDisplaySlice(
   count: number | "all",
 ): SensorReading[] {
   const window = count === "all" ? data : data.slice(-count)
-  if (window.length <= MAX_DISPLAY_POINTS) return [...window]
-  const stride = Math.ceil(window.length / MAX_DISPLAY_POINTS)
-  const out: SensorReading[] = []
-  for (let i = 0; i < window.length; i += stride) out.push(window[i])
-  const last = window[window.length - 1]
-  if (out[out.length - 1] !== last) out.push(last)
-  return out
+  const decimated = decimate(window, MAX_DISPLAY_POINTS)
+  // `decimate` hands back its input untouched when under the cap — and for
+  // count === "all" that input IS the live mutable buffer. Copy it so React sees
+  // a new reference and Chart.js never reads an array still being pushed to.
+  return decimated === window ? [...window] : decimated
 }
 
 interface ConnectionDeps {
@@ -161,11 +160,9 @@ export function useSensorData(
         stopMockData()
         return
       }
-      // Method A: the real pipeline turns tiny raw voltage ratios (~1e-6) into
-      // Newtons via a per-channel scale (~1e6). Mock mode bypasses the serial
-      // parser, so we generate raw-voltage-ratio-scale values and apply a
-      // representative scale here to keep charts in a sensible Newton range
-      // (gentle per-channel sine + noise so the lines look alive).
+      // Mock mode bypasses the serial parser, so generate raw-voltage-ratio-
+      // scale values and apply a representative scale here to keep charts in a
+      // sensible Newton range (per-channel sine + noise so lines look alive).
       const MOCK_SCALE = 3_000_000 // representative N per raw-voltage-ratio unit
       const t = Date.now() / 1000
       const mockValues = Array.from({ length: 12 }, (_, i) => {

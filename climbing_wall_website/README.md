@@ -1,118 +1,77 @@
-# Climbing Wall — Force Sensor Dashboard
+# Frontend — Climbing Wall Dashboard
 
-A browser-based dashboard that reads force data from climbing wall sensors over USB serial, visualises it in real time, saves recordings, and supports side-by-side comparison of past sessions.
+React + TypeScript + Vite. Reads the live sensor stream from the Flask backend,
+calibrates raw readings to Newtons in the browser, and charts them.
 
----
-
-## Requirements
-
-| Requirement | Notes |
-|---|---|
-| **Node.js ≥ 18** | `node -v` to check |
-| **Chromium-based browser** | Firefox does not support the Web Serial API |
-| **USB sensor device** | Arduino / ADC board that streams sensor data at 100 Hz |
-| **Backend server** | Python Flask server (separate repo/folder) running on port 5001 |
+Full setup lives in the [root README](../README.md).
+The file-by-file map lives in [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ---
 
-## Quick start
+## Commands
 
 ```bash
-# 1. Install dependencies
 npm install
-
-# 2. (Optional) Configure backend URL — only needed if your backend is not on localhost:5001
-cp .env.example .env
-# edit VITE_BACKEND_URL if required
-
-# 3. Start the dev server
-npm run dev
+npm run dev       # http://localhost:5173
+npm run build     # tsc --noEmit, then bundle to dist/
+npm run preview   # serve the production build
 ```
 
-Open **http://localhost:5173** in Chrome or Edge.
-
-> The frontend also works without the backend — you just won't be able to save/load recordings. Mock data is generated automatically when no USB device is connected.
+`npm run build` is the only automated gate — TypeScript runs in `strict` mode with
+`noUnusedLocals` and `noUnusedParameters`. There is no test runner.
 
 ---
 
-## Project layout
+## Backend connection
+
+`vite.config.ts` proxies to `http://localhost:5001`:
+
+- `/api/stream` → WebSocket (listed first, so the upgrade isn't caught by the HTTP rule)
+- `/api/*` → HTTP
+
+For a non-local backend, copy `.env.example` to `.env` and set `VITE_BACKEND_URL`.
+
+Without a backend the app still runs: it falls back to **demo mode** with generated
+data. Saving, loading, calibration, and the jump test all need the backend.
+
+> `vite.config.ts` deliberately excludes `src/config/calibration_settings.json` from the
+> file watcher. The backend rewrites that file on every calibration save, and a
+> full-page reload mid-session would drop the sensor stream.
+
+---
+
+## Stream format
+
+One line per sample, ~100 Hz, from `/api/stream`:
+
+```
+<g0x>,<g0y>,<g0z>,<g1x>,...,<g3z>\n
+```
+
+12 **raw voltage ratios** (~1e-6), not Newtons and not ADC integers — all calibration
+happens in the browser, in `src/utils/serialParser.ts`. The line carries no sample
+number; the frontend assigns one. `"ping"` is a heartbeat and is ignored.
+
+Board order on the wire is `0 = Left Foot, 1 = Left Hand, 2 = Right Foot, 3 = Right Hand`
+and is remapped to GUI order by `SENSOR_GROUP_ORDER = [1, 3, 0, 2]`.
+
+---
+
+## Layout
 
 ```
 src/
-  App.tsx                      Root component
-  main.tsx                     Vite entry point
-  index.css                    Tailwind base styles
-
+  App.tsx  main.tsx  index.css     Entry
   components/
-    sensor-dashboard.tsx        Main dashboard (serial read loop, state, charts)
-    dashboard/
-      ConnectionStatus.tsx      USB connection indicator
-      DashboardToolbar.tsx      Top bar (connect, record, export)
-      SensorToggleBar.tsx       Per-sensor show/hide toggles
-      comparison/
-        ComparisonView.tsx      Side-by-side recording comparison
-      tabs/
-        ComponentsTab.tsx       X / Y / Z force component charts
-        ForceMagnitudesTab.tsx  Euclidean magnitude per sensor
-        JumpTestTab.tsx         Jump detection + peak force
-        RecentRecordingsTab.tsx List of saved recordings
-
-  hooks/
-    useSensorData.ts            Live sensor state + data pipeline
-    useSerialPort.ts            Web Serial API connection management
-    useJumpTest.ts              Jump detection logic
-    useRecentRecordings.ts      Fetch & manage saved recordings
-    useComparisonData.ts        Load two recordings for comparison
-    useDisplaySettings.ts       Persisted display preferences
-    useSensorToggle.ts          Per-sensor visibility state
-    usePersistedState.ts        LocalStorage-backed useState
-
-  types/
-    sensor.ts                   SensorReading interface + shared types
-
-  constants/
-    sensor.ts                   Sensor names, colours, sample-count options
-
-  utils/
-    serialParser.ts             Parses raw serial bytes → SensorReading[]
-    dataProcessing.ts           Force magnitude, smoothing helpers
-    chartOptions.ts             Shared Chart.js option factories
-    csvExport.ts                CSV download helper
-    recordingApi.ts             REST calls to the backend
-    sensorStorage.ts            IndexedDB helpers (current-session data)
+    sensor-dashboard.tsx           Orchestrator — wires hooks together, no logic
+    dashboard/                     Toolbar, modals, controls
+    dashboard/tabs/                The four tabs
+    dashboard/comparison/          A/B recording comparison
+    ui/                            Trimmed shadcn primitives
+  hooks/                           One domain concern each
+  utils/                           Pure logic — parsing, calibration, geometry, API
+  config/                          calibration_settings.json (written by the backend)
+  constants/  types/  lib/
 ```
 
----
-
-## Backend API
-
-The backend exposes three endpoints (default base URL: `http://localhost:5001`):
-
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/recordings/save` | Save a recording (JSON body: `{ label, filename, readings }`) |
-| `GET` | `/api/recordings` | List all saved recordings |
-| `GET` | `/api/recordings/:id/data` | Fetch readings for a specific recording |
-
-Set `VITE_BACKEND_URL` in `.env` if the backend is on a different host.
-
----
-
-## Serial data format
-
-The firmware sends one line per sample at ~100 Hz:
-
-```
-<sampleNumber>,<s1x>,<s1y>,<s1z>,<s2x>,<s2y>,<s2z>,<s3x>,<s3y>,<s3z>,<s4x>,<s4y>,<s4z>\n
-```
-
-12 force values (4 sensors × X/Y/Z), all raw ADC integers. Parsing lives in `src/utils/serialParser.ts`.
-
----
-
-## Building for production
-
-```bash
-npm run build   # outputs to dist/
-npm run preview # local preview of the production build
-```
+See [ARCHITECTURE.md](../ARCHITECTURE.md) for what each file and function does.

@@ -19,7 +19,7 @@ import {
   computeHangCalibration,
   findDefaultChannels,
   GRAVITY,
-  CALIBRATION_FORCE_DIRECTION,
+  Y_FORCE_DIRECTION_PER_BOARD,
   type CalibrationConfig,
 } from "../../utils/calibration"
 import type { UseCalibrationReturn } from "../../hooks/useCalibration"
@@ -345,7 +345,7 @@ export function CalibrationModal({
         )
       : null
 
-  const yForceDir = yIdx !== null ? CALIBRATION_FORCE_DIRECTION[yIdx] : 1
+  const yForceDir = board !== null ? Y_FORCE_DIRECTION_PER_BOARD[board] : 1
   const yResult =
     mode === "y" && allCaptured && yIdx !== null
       ? computeAxisCalibration(

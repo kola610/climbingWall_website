@@ -7,9 +7,8 @@
  * wall, so their measurement axes rotate with it:
  *   - the in-plane (up-slope) sensor axis sits θ from true vertical;
  *   - the normal (out-of-wall) sensor axis sits θ from true horizontal.
- * A force applied in the world frame therefore appears in the sensor frame rotated
- * by θ, and is recovered by a single rotation through θ. This replaces the
- * previous independent X and Z derivation (which assumed θ = 0).
+ * A force applied in the world frame therefore appears in the sensor frame
+ * rotated by θ, and is recovered by a single rotation through θ.
  *
  * Coordinate convention (stated explicitly):
  *   Sensor frame (what the per-axis calibration produces, per board):
@@ -126,9 +125,9 @@ export type CoordinateFrame = "sensor" | "world"
  *
  * Sensor is the canonical stored frame, so it is returned unchanged (same array
  * reference, so memoised consumers can skip work). World frame is derived by
- * applying the wall-decline rotation by +θ — purely at the display layer, never
- * touching the stored buffer. `declineDeg` is the tilt angle the user has entered
- * and confirmed for the world view (live) or the angle chosen for a recording.
+ * rotating by +θ — purely at the display layer, never touching the stored
+ * buffer. `declineDeg` is the angle the user confirmed for the live world view,
+ * or the angle recorded with a saved capture.
  */
 export function toDisplayFrameReadings(
   readings: SensorReading[],

@@ -1,11 +1,49 @@
-import type { ChartOptions } from "chart.js"
+import type { ChartOptions, TooltipItem } from "chart.js"
 import type { SensorReading } from "../types/sensor"
 
 /**
- * Returns a Chart.js options object configured for the force-data line charts.
- * Accepts current display data (for tooltip callbacks), the y-axis maximum,
- * and the display window size so the x-axis can be pre-spanned to the full
- * window width even before enough data has arrived to fill it.
+ * Behaviour shared by every force chart (live and recorded). Only the scales
+ * differ between them, so those stay with each caller.
+ *
+ * Live charts redraw ~20x/s as new samples stream in. `{ duration: 0 }` keeps
+ * Chart.js's animation system running (just at zero length), which still drives
+ * the tooltip's opacity fade — and that fade gets retriggered on every redraw,
+ * so mid-fade it flickers and sometimes paints at full opacity. Turning
+ * animations fully off removes that glitch and the per-frame interpolation cost.
+ * The tooltip's own animation is disabled explicitly too, since it is configured
+ * separately from the chart's.
+ *
+ * `normalized` tells Chart.js the x data is strictly ascending and unique
+ * (sampleNumber), so it can skip its internal sort and binary-search during
+ * hit-testing — a real win for index-mode tooltips over hundreds of points.
+ * One shared `interaction` mode for hover + tooltip means a single
+ * active-element set is computed per mouse move instead of two.
+ */
+export const BASE_CHART_OPTIONS = {
+  responsive: true,
+  maintainAspectRatio: false,
+  animation: false,
+  normalized: true,
+  interaction: { mode: "index", intersect: false },
+  plugins: {
+    legend: { position: "top" },
+    title: { display: false },
+    tooltip: {
+      enabled: true,
+      animation: false,
+      position: "nearest",
+      callbacks: {
+        title: (items: TooltipItem<"line">[]) =>
+          `Sample: ${items[0]?.parsed?.x ?? ""}`,
+      },
+    },
+  },
+} satisfies ChartOptions<"line">
+
+/**
+ * Options for the LIVE force charts: y capped at the chosen (or auto-scaled)
+ * maximum, x pre-spanned to the full display window so the axis doesn't jump
+ * while the window is still filling.
  */
 export function createChartOptions(
   displayData: SensorReading[],
@@ -30,20 +68,7 @@ export function createChartOptions(
   const effectiveYAxisMax = autoScaleY ? autoScaledMax : yAxisMax
 
   return {
-    responsive: true,
-    maintainAspectRatio: false,
-    // Live charts redraw ~20×/s as new samples stream in. `{ duration: 0 }`
-    // keeps Chart.js's animation system running (just at zero length), which
-    // still drives the tooltip's opacity fade — and that fade gets retriggered
-    // on every redraw, so mid-fade it flickers and sometimes paints at full
-    // opacity. Turning animations fully off removes that glitch and the
-    // per-frame interpolation cost. The tooltip's own animation is disabled
-    // explicitly too, since it is configured separately from the chart's.
-    animation: false,
-    // The x data is strictly ascending and unique (sampleNumber), so Chart.js
-    // can skip its internal sort and binary-search during hit-testing — a real
-    // win for index-mode tooltips over hundreds of points.
-    normalized: true,
+    ...BASE_CHART_OPTIONS,
     scales: {
       y: {
         max: effectiveYAxisMax,
@@ -54,24 +79,7 @@ export function createChartOptions(
         min: firstSample,
         max: xMax,
         title: { display: true, text: "Sample" },
-        ticks: {
-          maxTicksLimit: 10,
-        },
-      },
-    },
-    // One shared interaction mode for hover + tooltip means Chart.js computes a
-    // single active-element set per mouse move instead of two.
-    interaction: { mode: "index", intersect: false },
-    plugins: {
-      legend: { position: "top" },
-      title: { display: false },
-      tooltip: {
-        enabled: true,
-        animation: false,
-        position: "nearest",
-        callbacks: {
-          title: (items) => `Sample: ${items[0]?.parsed?.x ?? ""}`,
-        },
+        ticks: { maxTicksLimit: 10 },
       },
     },
   }

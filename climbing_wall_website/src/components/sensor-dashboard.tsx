@@ -79,9 +79,9 @@ export default function SensorDashboard() {
   const profiles = useCalibrationProfiles(calibration)
 
   // --- Step 1: stable dispatcher refs ---
-  // These refs break the circular dependency between useSerialPort (which needs
-  // to call handlers) and useSensorData / useJumpTest (which need the port).
-  // They are updated every render so hook implementations never go stale.
+  // These break the circular dependency between the stream hook (which needs to
+  // call the handlers) and useSensorData / useJumpTest (which need the stream).
+  // Updated every render so the hook implementations never go stale.
   const addSensorReadingRef = useRef<((values: number[]) => void) | null>(null)
   const calibrationSinkRef = useRef<((signedRaw: number[]) => void) | null>(null)
   const tareSinkRef = useRef<((signedRaw: number[]) => void) | null>(null)
@@ -95,14 +95,9 @@ export default function SensorDashboard() {
       calibrationSinkRef.current?.(msg.signedRaw)
       tareSinkRef.current?.(msg.signedRaw)
     }
-    // Jump height is no longer reported over serial — it is computed from the
-    // calibrated buffer on jump-finish (see useJumpTest / backend /api/jump).
   }, []) // intentionally stable — reads from refs at call time
 
   // --- Step 2: domain hooks ---
-  // WebSocket stream to the backend (which reads the Phidget bridges directly).
-  // Drop-in replacement for useSerialPort — same interface, so nothing else in
-  // this component changes. Kept named `serial` to minimize churn.
   const serial = useBackendStream(handleSerialLine)
 
   const displaySettings = useDisplaySettings()

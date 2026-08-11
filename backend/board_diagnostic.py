@@ -91,17 +91,19 @@ def smooth(v: list[float], w: int = 25) -> list[float]:
     return out
 
 
-def find_plateaus(mag: list[float], min_len: int = 150) -> list[tuple[int, int]]:
+def find_plateaus(mag: list[float], target_n: float, min_len: int = 150) -> list[tuple[int, int]]:
     """Contiguous stretches of sustained load, trimmed to their flattest middle.
 
-    A plateau is a run above 25% of the recording's peak lasting at least
-    `min_len` samples (~1.5 s at 100 Hz). The outer 25% on each side is dropped so
-    the ramp-in/ramp-out never pollutes the mean.
+    The threshold is a fraction of the force being APPLIED, not of the board's own
+    peak. Peak-relative thresholding fails whenever one pull is much larger than
+    another in the same recording: a 118 N sideways pull lifts the bar above a 22 N
+    pull-out on the same board, so the interesting plateau vanishes and short
+    transients get picked up instead.
+
+    A plateau must also last `min_len` samples (~1.5 s at 100 Hz). The outer 25% on
+    each side is dropped so the ramp-in/ramp-out never pollutes the mean.
     """
-    peak = max(mag)
-    if peak < 5.0:  # nothing was ever loaded on this board
-        return []
-    thresh = 0.25 * peak
+    thresh = 0.15 * target_n
     runs, start = [], None
     for i, m in enumerate(mag):
         if m > thresh and start is None:
@@ -370,7 +372,7 @@ def main() -> int:
     for b, key in enumerate(BOARDS, start=1):
         if key not in wanted:
             continue
-        segs = find_plateaus(smooth(magnitude(cols, b)))
+        segs = find_plateaus(smooth(magnitude(cols, b)), target_n)
         if not segs:
             continue
         print(f"── {BOARD_NAMES[key]} ({key}) " + "─" * 46)

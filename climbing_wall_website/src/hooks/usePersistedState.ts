@@ -1,27 +1,18 @@
-import { useState, useEffect, useCallback } from "react"
-
-type StorageBackend = "local" | "session"
-
-function getStorage(backend: StorageBackend): Storage {
-  return backend === "session" ? sessionStorage : localStorage
-}
+import { useState, useEffect } from "react"
 
 /**
  * Drop-in replacement for `useState` that also persists the value to
- * localStorage (default) or sessionStorage.
- *
- * - Reads the stored value on first render; falls back to `defaultValue`.
- * - Writes every state change back to storage.
- * - Handles JSON serialisation, quota errors, and SSR gracefully.
+ * localStorage: reads the stored value on first render (falling back to
+ * `defaultValue`) and writes every change back. Storage failures — quota,
+ * private mode, corrupt JSON — are swallowed; the app still works in-memory.
  */
 export function usePersistedState<T>(
   key: string,
   defaultValue: T,
-  backend: StorageBackend = "local",
-): [T, (value: T | ((prev: T) => T)) => void] {
-  const [value, setValueRaw] = useState<T>(() => {
+): [T, React.Dispatch<React.SetStateAction<T>>] {
+  const [value, setValue] = useState<T>(() => {
     try {
-      const stored = getStorage(backend).getItem(key)
+      const stored = localStorage.getItem(key)
       return stored !== null ? (JSON.parse(stored) as T) : defaultValue
     } catch {
       return defaultValue
@@ -30,16 +21,11 @@ export function usePersistedState<T>(
 
   useEffect(() => {
     try {
-      getStorage(backend).setItem(key, JSON.stringify(value))
+      localStorage.setItem(key, JSON.stringify(value))
     } catch {
-      // Quota exceeded — silently drop, the app still works in-memory.
+      // Quota exceeded / unavailable — the in-memory value still applies.
     }
-  }, [key, value, backend])
-
-  const setValue = useCallback(
-    (next: T | ((prev: T) => T)) => setValueRaw(next),
-    [],
-  )
+  }, [key, value])
 
   return [value, setValue]
 }

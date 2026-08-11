@@ -137,9 +137,6 @@ def calculate_jump_height_with_angle(foot_forces, hand_forces, mass, sampling_ra
     """
     Calculate jump height from wall-oriented force data with angle correction.
 
-    Ported (Method A) from the Pi's demonstration.py so the proven numpy/scipy
-    algorithm now runs computer-side on the calibrated Newton force buffer.
-
     foot_forces / hand_forces: numpy arrays of shape (n_samples, 3), columns
         [Fx, Fy, Fz] in wall coordinates (Newtons). foot = both feet summed,
         hand = both hands summed.
@@ -148,10 +145,6 @@ def calculate_jump_height_with_angle(foot_forces, hand_forces, mass, sampling_ra
     wall_angle_degrees: wall angle from vertical (positive = overhanging)
 
     Returns jump height in meters (perpendicular to the wall).
-
-    Deviation from the original: the "no zero crossing found" branch used to
-    `return true_takeoff_index` (an integer sample index, not a height) — a bug.
-    Here both branches fall through to the same position-based height calculation.
     """
     dt = 1.0 / sampling_rate
     time_axis = np.arange(len(foot_forces)) / sampling_rate
@@ -279,9 +272,7 @@ def compute_jump():
 
 
 # ── Live Phidget sensor stream ───────────────────────────────────────────────
-# The Phidget bridges are now attached directly to this computer (no Pi). This
-# WebSocket replaces the Pi's serial stream: same line format (12 comma-
-# separated raw voltage ratios, ~100 Hz), so the frontend pipeline is unchanged.
+# One line per sample: 12 comma-separated raw voltage ratios, ~100 Hz.
 
 @sock.route("/api/stream")
 def sensor_stream(ws):
@@ -377,6 +368,19 @@ def save_recording():
     }), 201
 
 
+def _calib_config_error(payload):
+    """Return an error string if payload lacks valid CALIB_KEYS arrays, else None."""
+    for key in CALIB_KEYS:
+        arr = payload.get(key)
+        if (
+            not isinstance(arr, list)
+            or len(arr) != 12
+            or not all(isinstance(n, (int, float)) for n in arr)
+        ):
+            return f"'{key}' must be an array of 12 numbers."
+    return None
+
+
 @app.route("/api/calibration", methods=["GET"])
 def get_calibration():
     """Return the committed calibration settings, or 404 if not present."""
@@ -396,14 +400,9 @@ def save_calibration():
         return ("", 204)
 
     payload = request.get_json(silent=True) or {}
-    for key in CALIB_KEYS:
-        arr = payload.get(key)
-        if (
-            not isinstance(arr, list)
-            or len(arr) != 12
-            or not all(isinstance(n, (int, float)) for n in arr)
-        ):
-            return jsonify({"error": f"'{key}' must be an array of 12 numbers."}), 400
+    err = _calib_config_error(payload)
+    if err:
+        return jsonify({"error": err}), 400
 
     config = {key: payload[key] for key in CALIB_KEYS}
     try:
@@ -417,19 +416,6 @@ def save_calibration():
 
 
 # ── Named calibration profiles ────────────────────────────────────────────────
-
-def _calib_config_error(payload):
-    """Return an error string if payload lacks valid CALIB_KEYS arrays, else None."""
-    for key in CALIB_KEYS:
-        arr = payload.get(key)
-        if (
-            not isinstance(arr, list)
-            or len(arr) != 12
-            or not all(isinstance(n, (int, float)) for n in arr)
-        ):
-            return f"'{key}' must be an array of 12 numbers."
-    return None
-
 
 def _read_profiles():
     if not PROFILES_PATH.exists():

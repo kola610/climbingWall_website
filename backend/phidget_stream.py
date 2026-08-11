@@ -1,14 +1,9 @@
-"""Reads the 4 PhidgetBridge boards directly on this computer and streams the
-12 raw voltage ratios to WebSocket clients, replacing the Raspberry Pi.
-
-The Pi used to read the bridges and stream one comma-separated line of 12
-floats per sample (~100 Hz) over serial. The frontend's whole calibration
-pipeline (remap -> sign -> tare -> scale, see serialParser.ts) is built on that
-line format, so this module reproduces it byte-for-byte over a WebSocket:
+"""Reads the 4 PhidgetBridge boards and streams the 12 raw voltage ratios to
+WebSocket clients, one comma-separated line per sample (~100 Hz):
 
     "<g0x>,<g0y>,<g0z>,<g1x>,...,<g3z>\n"    (raw voltage ratios, ~1e-6)
 
-Group order matches the Pi's wiring convention that serialParser's
+Group order matches the wiring convention that serialParser's
 SENSOR_GROUP_ORDER = [1, 3, 0, 2] expects:
     group 0 = Left Foot, group 1 = Left Hand,
     group 2 = Right Foot, group 3 = Right Hand
@@ -37,8 +32,8 @@ DEFAULT_CONFIG = {
     "bridgeSerials": [293698, 293701, 481661, 481689],
     # Bridge input channels used per board, in (X, Y, Z) order.
     "channels": [0, 1, 2],
-    # Amplifier gain — must match what the Pi used so the raw-ratio scale (and
-    # therefore the saved calibration scales) stays comparable.
+    # Amplifier gain. Changing it rescales the raw ratios, invalidating every
+    # saved calibration scale — recalibrate if you touch this.
     "bridgeGain": 128,
     # Sample period in ms. 10 ms = 100 Hz, the rate the whole pipeline assumes
     # (e.g. /api/jump defaults to samplingRate=100).
@@ -184,7 +179,6 @@ class PhidgetStreamer:
             if not clients or not any(self._attached):
                 continue
 
-            # Same wire format the Pi produced: 12 comma-separated floats.
             line = ",".join("%.9e" % v for v in self._values)
             for q in clients:
                 try:
