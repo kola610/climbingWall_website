@@ -28,8 +28,10 @@ CONFIG_PATH = Path(__file__).resolve().parent / "phidget_config.json"
 DEFAULT_CONFIG = {
     # Bridge serial number per sensor group (index 0..3 = group 0..3).
     # Group meaning is fixed by the frontend: 0=Left Foot, 1=Left Hand,
-    # 2=Right Foot, 3=Right Hand.
-    "bridgeSerials": [293698, 293701, 481661, 481689],
+    # 2=Right Foot, 3=Right Hand. These are the SMS Lab rig's actual serials, so
+    # the file this writes on a fresh machine already matches the wall — keep it
+    # in step with the checked-in phidget_config.json.
+    "bridgeSerials": [481661, 293698, 481689, 293701],
     # Bridge input channels used per board, in (X, Y, Z) order.
     "channels": [0, 1, 2],
     # Amplifier gain. Changing it rescales the raw ratios, invalidating every

@@ -5,3 +5,4 @@ backend/calibration_profiles.json
 __pycache__/
 *.pyc
 backend/venv/
+.DS_Store
