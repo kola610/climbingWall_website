@@ -8,7 +8,7 @@ import re
 import numpy as np
 from scipy.integrate import cumulative_trapezoid
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
 from flask_sock import Sock
 
 from phidget_stream import streamer
@@ -68,6 +68,13 @@ def _meta_path(csv_path: Path) -> Path:
     return csv_path.with_suffix(".meta.json")
 
 
+def _recording_path(recording_id: str) -> Path:
+    """Resolve a recording id to its CSV. Single place this mapping happens, so
+    every handler strips path separators the same way (no traversal via id)."""
+    safe_id = re.sub(r"[^a-zA-Z0-9_-]", "", recording_id)
+    return SAVE_DIR / f"{safe_id}.csv"
+
+
 def _write_meta(
     csv_path: Path,
     label: str,
@@ -123,7 +130,7 @@ def _read_or_generate_meta(csv_path: Path) -> dict:
         except Exception:
             pass
 
-    return {
+    derived = {
         "id": csv_path.stem,
         "filename": csv_path.name,
         "created_at": datetime.fromtimestamp(csv_path.stat().st_mtime).isoformat(),
@@ -131,6 +138,42 @@ def _read_or_generate_meta(csv_path: Path) -> dict:
         "duration_s": round(duration_s, 2),
         "label": csv_path.stem,
     }
+
+    # Persist what we just derived. Deriving it means parsing the whole CSV, and
+    # the listing endpoint touches every recording — without this the cost is
+    # paid again on every list call, scaling with total bytes on disk.
+    try:
+        with _meta_path(csv_path).open("w", encoding="utf-8") as f:
+            json.dump(derived, f)
+    except Exception:
+        pass  # read-only dir: still return the metadata, just re-derive next time
+    return derived
+
+
+def _slice_and_downsample(rows: list, frm=None, to=None):
+    """Cut `rows` to the [frm, to) window, then thin it to MAX_CHART_POINTS.
+
+    Bounds are 0-based row positions with Python-slice semantics, NOT values from
+    the Sample column: sample numbers are absolute and survive buffer trims, so
+    they are not a reliable index into the file. `sample_count` in the metadata is
+    a row count, which is what the UI's range control is bounded by.
+
+    Reversed and out-of-range bounds are clamped rather than rejected — a range
+    slider drags through those states constantly and must not error mid-drag.
+
+    Returns (window, start, end) so callers can report the window actually used.
+    """
+    total = len(rows)
+    start = 0 if frm is None else max(0, min(int(frm), total))
+    end = total if to is None else max(0, min(int(to), total))
+    if start > end:
+        start, end = end, start
+
+    window = rows[start:end]
+    if len(window) > MAX_CHART_POINTS:
+        step = len(window) / MAX_CHART_POINTS
+        window = [window[int(i * step)] for i in range(MAX_CHART_POINTS)]
+    return window, start, end
 
 
 def calculate_jump_height_with_angle(foot_forces, hand_forces, mass, sampling_rate, wall_angle_degrees):
@@ -506,7 +549,7 @@ def modify_calibration_profile(name):
 
 @app.route("/api/recordings", methods=["GET"])
 def list_recordings():
-    """Return the 5 most recent recordings, newest first."""
+    """Recordings newest first. `?limit=N` caps the list; `limit=0` returns all."""
     metas = []
     for csv_path in SAVE_DIR.glob("*.csv"):
         try:
@@ -515,14 +558,14 @@ def list_recordings():
         except Exception:
             pass
     metas.sort(key=lambda m: m.get("created_at", ""), reverse=True)
-    return jsonify(metas[:5])
+    limit = request.args.get("limit", default=5, type=int)
+    return jsonify(metas if limit <= 0 else metas[:limit])
 
 
 @app.route("/api/recordings/<recording_id>/data", methods=["GET"])
 def get_recording_data(recording_id: str):
-    """Return downsampled sensor readings for a single recording."""
-    safe_id = re.sub(r"[^a-zA-Z0-9_-]", "", recording_id)
-    csv_path = SAVE_DIR / f"{safe_id}.csv"
+    """Downsampled readings for one recording, optionally over a [from, to) window."""
+    csv_path = _recording_path(recording_id)
     if not csv_path.exists():
         return jsonify({"error": "Recording not found."}), 404
 
@@ -536,12 +579,18 @@ def get_recording_data(recording_id: str):
 
     total = len(rows)
 
-    # Downsample evenly to at most MAX_CHART_POINTS.
-    # Evenly-spaced selection + frontend moving-average smoothing produces
-    # charts that are visually faithful without rendering thousands of points.
-    if total > MAX_CHART_POINTS:
-        step = total / MAX_CHART_POINTS
-        rows = [rows[int(i * step)] for i in range(MAX_CHART_POINTS)]
+    # Optional [from, to) row window, then even downsampling to MAX_CHART_POINTS.
+    # Windowing FIRST is what makes zoom real: 1000 points of a narrow window is
+    # more resolution, where thinning first and magnifying after would only
+    # enlarge the same dots.
+    def _arg(name):
+        raw = request.args.get(name)
+        try:
+            return int(raw) if raw not in (None, "") else None
+        except ValueError:
+            return None
+
+    rows, win_from, win_to = _slice_and_downsample(rows, _arg("from"), _arg("to"))
 
     readings = []
     for row in rows:
@@ -554,11 +603,73 @@ def get_recording_data(recording_id: str):
             continue
 
     return jsonify({
-        "id": safe_id,
+        "id": csv_path.stem,
         "total_samples": total,
         "returned_samples": len(readings),
+        "from": win_from,
+        "to": win_to,
         "readings": readings,
     })
+
+
+@app.route("/api/recordings/<recording_id>/download", methods=["GET"])
+def download_recording(recording_id: str):
+    """Send the stored CSV verbatim — every sample, no downsampling.
+
+    The chart endpoint deliberately thins its payload, and narrows it further
+    when zoomed; this one must not. A user exporting "their data" gets the file
+    that was written at save time.
+    """
+    csv_path = _recording_path(recording_id)
+    if not csv_path.exists():
+        return jsonify({"error": "Recording not found."}), 404
+
+    # The stem is usually "<label>_<timestamp>" already, so only prefix a label
+    # that has since been changed by a rename — otherwise the name doubles up.
+    meta = _read_or_generate_meta(csv_path)
+    label = _safe_filename_part(meta.get("label", ""))
+    stem = csv_path.stem
+    name = stem if not label or stem.startswith(label) else f"{label}_{stem}"
+    return send_file(
+        csv_path,
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name=f"{name}.csv",
+    )
+
+
+@app.route("/api/recordings/<recording_id>", methods=["PUT", "DELETE", "OPTIONS"])
+def modify_recording(recording_id: str):
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    csv_path = _recording_path(recording_id)
+    if not csv_path.exists():
+        return jsonify({"error": "Recording not found."}), 404
+
+    if request.method == "DELETE":
+        try:
+            csv_path.unlink()
+            _meta_path(csv_path).unlink(missing_ok=True)
+        except Exception as err:
+            return jsonify({"error": f"Could not delete recording: {err}"}), 500
+        return jsonify({"message": f"Deleted '{csv_path.stem}'."}), 200
+
+    # PUT — rename. Only the sidecar's display label changes; the CSV keeps its
+    # filename, so the recording's id stays stable and nothing else has to care.
+    payload = request.get_json(silent=True) or {}
+    label = str(payload.get("label", "")).strip()
+    if not label:
+        return jsonify({"error": "A label is required."}), 400
+
+    meta = _read_or_generate_meta(csv_path)
+    meta["label"] = label
+    try:
+        with _meta_path(csv_path).open("w", encoding="utf-8") as f:
+            json.dump(meta, f)
+    except Exception as err:
+        return jsonify({"error": f"Could not rename recording: {err}"}), 500
+    return jsonify(meta), 200
 
 
 if __name__ == "__main__":
