@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useState } from "react"
 import { Line } from "react-chartjs-2"
 import type { ChartOptions } from "chart.js"
-import { RefreshCw, Clock, Database, Download, ArrowLeftRight, X } from "lucide-react"
+import {
+  RefreshCw, Clock, Database, Download, ArrowLeftRight, X,
+  FolderOpen, Search, ZoomOut,
+} from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card"
 import { Button } from "../../ui/button"
+import { Slider } from "../../ui/slider"
 import { buildNormChartData, buildComponentChartData } from "../../../utils/dataProcessing"
 import { SENSOR_NAMES, MAGNITUDE_COLORS } from "../../../constants/sensor"
 import { useRecentRecordings } from "../../../hooks/useRecentRecordings"
 import type { ComparisonDataState } from "../../../hooks/useComparisonData"
 import { ComparisonView } from "../comparison/ComparisonView"
-import type { RecordingMeta } from "../../../utils/recordingApi"
-import { exportToCsv } from "../../../utils/csvExport"
+import { RecordingsBrowserModal } from "../RecordingsBrowserModal"
+import { recordingDownloadUrl, type RecordingMeta } from "../../../utils/recordingApi"
 import { BASE_CHART_OPTIONS } from "../../../utils/chartOptions"
 import { toDisplayFrameReadings } from "../../../utils/wallGeometry"
 
@@ -133,11 +137,15 @@ export function RecentRecordingsTab({
     recordings,
     selectedId,
     selectedData,
+    sampleWindow,
     listLoading,
     dataLoading,
     error,
     refresh,
     selectRecording,
+    loadWindow,
+    removeRecording,
+    relabelRecording,
   } = useRecentRecordings()
 
   // World-frame view for the recordings tab. Default is the canonical sensor
@@ -145,6 +153,9 @@ export function RecentRecordingsTab({
   // capture (meta.wall_decline_deg) — the user does not pick the angle, it is a
   // known property of the recording. The transformation is UI-only.
   const [worldView, setWorldView] = useState(false)
+
+  // The list above only holds the recent few; older captures are picked here.
+  const [browserOpen, setBrowserOpen] = useState(false)
 
   // Load on mount and re-load (selecting newest) whenever a save completes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -203,6 +214,36 @@ export function RecentRecordingsTab({
 
   const selectedMeta = recordings.find((r) => r.id === selectedId)
 
+  // The grid stays the five most recent, always. Loading an older capture from
+  // the archive modal adds its metadata to `recordings` so the header and the
+  // compare labels resolve — but it must not push a recent capture out of the
+  // list, so everything render-facing goes through `listed`.
+  const listed = useMemo(
+    () =>
+      [...recordings]
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .slice(0, 5),
+    [recordings],
+  )
+
+  // ── Zoom window ──
+  // The range is row positions into the recording. Committed on release rather
+  // than on every drag step: each fetch re-reads the whole CSV on the backend,
+  // so a live-updating slider would fire hundreds of full-file reads.
+  const totalRows = selectedMeta?.sample_count ?? 0
+  const [range, setRange] = useState<[number, number]>([0, 0])
+
+  useEffect(() => { setRange([0, totalRows]) }, [selectedId, totalRows])
+
+  // Pointless below the cap, where nothing is thinned in the first place.
+  const zoomable = totalRows > 1000
+  const windowRows = sampleWindow ? sampleWindow.to - sampleWindow.from : totalRows
+  // How much of the loaded window actually made it onto the chart.
+  const shownRatio =
+    selectedData.length > 0 && windowRows > selectedData.length
+      ? Math.round(windowRows / selectedData.length)
+      : 1
+
   // The recording is stored in the canonical sensor frame. The world view is a
   // display-only rotation by the tilt angle recorded with this capture (meta).
   // Older recordings without a stored angle can only be shown in sensor frame.
@@ -215,16 +256,6 @@ export function RecentRecordingsTab({
     [selectedData, coordinateFrame, recordingAngle],
   )
 
-  const handleExportSelected = () => {
-    if (!selectedMeta || selectedData.length === 0) return
-    const safeLabel = selectedMeta.label
-      .trim()
-      .replace(/[^a-zA-Z0-9_-]+/g, "_")
-      .replace(/^_+|_+$/g, "")
-      .slice(0, 80) || "recording"
-    exportToCsv(selectedData, `${safeLabel}_${selectedMeta.id}.csv`)
-  }
-
   return (
     <div className="space-y-4">
 
@@ -234,15 +265,26 @@ export function RecentRecordingsTab({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <CardTitle className="text-base">Recent Recordings</CardTitle>
-              {recordings.length > 0 && (
+              {listed.length > 0 && (
                 <span className="text-xs text-muted-foreground">
-                  ({recordings.length})
+                  ({listed.length})
                 </span>
               )}
             </div>
             <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setBrowserOpen(true)}
+                className="h-7 px-2 gap-1.5 text-xs"
+                title="Browse every saved recording, not just the recent ones"
+              >
+                <FolderOpen className="h-3 w-3" />
+                Browse All
+              </Button>
+
               {/* Compare toggle */}
-              {recordings.length >= 2 && (
+              {listed.length >= 2 && (
                 <Button
                   variant={compareMode ? "default" : "outline"}
                   size="sm"
@@ -283,7 +325,7 @@ export function RecentRecordingsTab({
             <p className="text-sm text-destructive">{error}</p>
           )}
 
-          {!listLoading && recordings.length === 0 && !error && (
+          {!listLoading && listed.length === 0 && !error && (
             <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
               <Database className="h-8 w-8 text-muted-foreground/40" />
               <p className="text-sm text-muted-foreground">No recordings saved yet.</p>
@@ -293,9 +335,9 @@ export function RecentRecordingsTab({
             </div>
           )}
 
-          {recordings.length > 0 && (
+          {listed.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
-              {recordings.map((rec) => {
+              {listed.map((rec) => {
                 // Resolve compare badge and dimmed state
                 const badge = compareMode
                   ? comparison.slotA?.id === rec.id
@@ -328,6 +370,21 @@ export function RecentRecordingsTab({
         </CardContent>
       </Card>
 
+      {/* ── Full archive picker ── */}
+      <RecordingsBrowserModal
+        open={browserOpen}
+        onClose={() => setBrowserOpen(false)}
+        selectedId={compareMode ? null : selectedId}
+        onDelete={removeRecording}
+        onRename={relabelRecording}
+        onSelect={(rec) => {
+          // Fold the pick into the recent list so it stays visible/selectable,
+          // then load it — in compare mode it takes an A/B slot instead.
+          selectRecording(rec.id, rec)
+          if (compareMode) comparison.toggleId(rec.id)
+        }}
+      />
+
       {/* ── Compare view ── */}
       {compareMode && (
         <ComparisonView
@@ -357,9 +414,11 @@ export function RecentRecordingsTab({
                   {formatDuration(selectedMeta.duration_s)}
                   {" · "}
                   {selectedMeta.sample_count.toLocaleString()} samples
-                  {selectedMeta.sample_count > 1000 && (
+                  {selectedData.length > 0 && (
                     <span className="ml-1 text-xs text-muted-foreground">
-                      (showing ~1 000 points)
+                      {shownRatio > 1
+                        ? `(plotting 1 in ${shownRatio})`
+                        : "(plotting every sample)"}
                     </span>
                   )}
                 </span>
@@ -396,18 +455,67 @@ export function RecentRecordingsTab({
                     </button>
                   </div>
                 )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleExportSelected}
-                  disabled={dataLoading || selectedData.length === 0}
-                  className="gap-1.5"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  Export CSV
+                {/* A plain link to the stored file — NOT a re-serialisation of
+                    `selectedData`, which is downsampled for charting and narrowed
+                    further while zoomed. Exporting that would silently hand over
+                    ~1000 points of the real recording. */}
+                <Button asChild variant="outline" size="sm" className="gap-1.5">
+                  <a
+                    href={recordingDownloadUrl(selectedMeta.id)}
+                    download
+                    title={`Download all ${selectedMeta.sample_count.toLocaleString()} samples`}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Export CSV
+                  </a>
                 </Button>
               </div>
             </div>
+          )}
+
+          {/* ── Zoom window ──
+              Narrowing the range re-fetches that slice from the backend, which
+              downsamples the SLICE to ~1000 points. So this buys real detail,
+              unlike a client-side zoom that would only magnify the dots already
+              drawn. */}
+          {zoomable && (
+            <Card>
+              <CardContent className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:gap-4">
+                <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                  <Search className="h-3.5 w-3.5" />
+                  <span className="font-medium text-foreground">Zoom</span>
+                  <span className="tabular-nums">
+                    {range[0].toLocaleString()} – {range[1].toLocaleString()}
+                  </span>
+                </div>
+
+                <Slider
+                  value={range}
+                  min={0}
+                  max={totalRows}
+                  step={Math.max(1, Math.round(totalRows / 500))}
+                  minStepsBetweenThumbs={1}
+                  onValueChange={(v) => setRange([v[0], v[1]] as [number, number])}
+                  onValueCommit={(v) => loadWindow({ from: v[0], to: v[1] })}
+                  disabled={dataLoading}
+                  className="flex-1"
+                />
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 shrink-0 gap-1.5 text-xs"
+                  disabled={!sampleWindow || dataLoading}
+                  onClick={() => {
+                    setRange([0, totalRows])
+                    loadWindow(null)
+                  }}
+                >
+                  <ZoomOut className="h-3 w-3" />
+                  Whole recording
+                </Button>
+              </CardContent>
+            </Card>
           )}
 
           {dataLoading && (
