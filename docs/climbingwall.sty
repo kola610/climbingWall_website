@@ -1,0 +1,140 @@
+% =====================================================================
+%  climbingwall.sty
+%  Shared design system for the Climbing Wall Force-Measurement guides.
+%
+%  Provides: colour palette, titled call-out boxes (infobox / warnbox),
+%  a document banner (\guidetitle), softly-framed screenshots
+%  (\screenshot / \framedshot), and a page-numbered footer.
+%
+%  Usage in a document:
+%      \documentclass[11pt,a4paper]{article}
+%      \usepackage{climbingwall}
+%      \graphicspath{{images/<guide>/}}
+%      \setdocname{User Guide}
+%      ...
+%      \guidetitle{Title}{Subtitle}
+% =====================================================================
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{climbingwall}[2026/06/23 Climbing Wall guide style]
+
+% --- fonts & encoding -----------------------------------------------
+\RequirePackage[utf8]{inputenc}
+\RequirePackage[T1]{fontenc}
+\RequirePackage{lmodern}
+\RequirePackage{microtype}
+
+% --- layout ---------------------------------------------------------
+\RequirePackage[margin=2cm,footskip=1.1cm]{geometry}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.5em plus 0.15em minus 0.1em}
+
+% --- graphics, maths, tables ----------------------------------------
+\RequirePackage{graphicx}
+\RequirePackage{amsmath}
+\RequirePackage{amssymb}
+\RequirePackage{booktabs}
+\RequirePackage{array}
+\RequirePackage{float}      % provides [H] -- place a figure exactly at its spot
+
+% --- colour palette -------------------------------------------------
+\RequirePackage{xcolor}
+\definecolor{accent}{HTML}{2563EB}   % blue-600  -- primary
+\definecolor{accentd}{HTML}{1E40AF}  % blue-800  -- headings
+\definecolor{ink}{HTML}{0F172A}      % slate-900 -- titles / body emphasis
+\definecolor{muted}{HTML}{64748B}    % slate-500 -- subtitles / footer
+\definecolor{soft}{HTML}{F1F5F9}     % slate-100 -- info background
+\definecolor{line}{HTML}{CBD5E1}     % slate-300 -- hairlines / frames
+\definecolor{warn}{HTML}{B45309}     % amber-700 -- warning accent
+\definecolor{warnbg}{HTML}{FEF3C7}   % amber-100 -- warning background
+
+% --- call-out boxes & screenshot frames -----------------------------
+\RequirePackage{tikz}
+\usetikzlibrary{angles,quotes,calc}
+\RequirePackage[most]{tcolorbox}
+
+% a thin coloured left bar marks each call-out; no heavy outer border
+\newtcolorbox{infobox}{enhanced, breakable, colback=soft, colframe=soft,
+  boxrule=0pt, arc=2pt, left=11pt, right=10pt, top=6pt, bottom=6pt,
+  borderline west={2.5pt}{0pt}{accent}}
+\newtcolorbox{warnbox}{enhanced, breakable, colback=warnbg, colframe=warnbg,
+  boxrule=0pt, arc=2pt, left=11pt, right=10pt, top=6pt, bottom=6pt,
+  borderline west={2.5pt}{0pt}{warn}}
+
+% \framedshot{file}{width-fraction} -- a softly rounded, lightly shadowed frame
+\newcommand{\framedshot}[2]{%
+  \begin{tcolorbox}[enhanced, width=#2\linewidth, nobeforeafter,
+      boxrule=0.5pt, colframe=line, colback=white, arc=3pt,
+      left=1pt, right=1pt, top=1pt, bottom=1pt,
+      drop fuzzy shadow={line}]%
+    \includegraphics[width=\linewidth]{#1}%
+  \end{tcolorbox}}
+
+% --- captions -------------------------------------------------------
+\RequirePackage{caption}
+\captionsetup{font={small,color=muted}, labelfont={bf,color=accent},
+              labelsep=period, skip=6pt}
+
+% \screenshot{file}{width-fraction}{caption} -- framed, captioned figure.
+% Placement defaults to floating [ht]; a figure-dense step-by-step doc can pin
+% screenshots in reading order with \renewcommand{\shotplacement}{H}.
+\providecommand{\shotplacement}{ht}
+\newcommand{\cwshot}[4]{%
+  \begin{figure}[#1]\centering
+    \framedshot{#2}{#3}
+    \caption{#4}\label{fig:#2}
+  \end{figure}}
+\newcommand{\screenshot}[3]{%  expand \shotplacement into the [..] option
+  \expandafter\cwshot\expandafter{\shotplacement}{#1}{#2}{#3}}
+
+% --- lists ----------------------------------------------------------
+\RequirePackage{enumitem}
+\setlist[enumerate]{itemsep=2pt, topsep=3pt, leftmargin=1.6em}
+\setlist[itemize]{itemsep=1pt, topsep=2pt, leftmargin=1.4em}
+
+% --- section headings (numbered, accent, hairline divider) ----------
+\RequirePackage{titlesec}
+\titlespacing*{\section}{0pt}{12pt}{5pt}
+\titleformat{\section}{\large\bfseries\color{accentd}}{\thesection.}{0.5em}{}%
+  [\vspace{2pt}{\color{line}\titlerule[0.6pt]}]
+\titlespacing*{\subsection}{0pt}{8pt}{3pt}
+\titleformat{\subsection}{\normalsize\bfseries\color{ink}}{\thesubsection.}{0.4em}{}
+
+% --- header / footer ------------------------------------------------
+\RequirePackage{fancyhdr}
+\RequirePackage{lastpage}
+\newcommand{\kickertext}{Climbing Wall Force-Measurement System}
+\newcommand{\guidedocname}{}
+\newcommand{\setdocname}[1]{\renewcommand{\guidedocname}{#1}}
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\newlength{\cwfootskip}\setlength{\cwfootskip}{0.35\normalbaselineskip}
+\renewcommand{\footrulewidth}{0.4pt}
+\renewcommand{\footrule}{%
+  \vskip-\cwfootskip\vskip-\footrulewidth
+  {\color{line}\hrule\@width\headwidth\@height\footrulewidth}%
+  \vskip\cwfootskip}
+\fancyfoot[L]{\footnotesize\color{muted}\kickertext\ \textperiodcentered\ \guidedocname}
+\fancyfoot[R]{\footnotesize\color{muted}Page \thepage\ of \pageref{LastPage}}
+
+% --- hyperlinks (load late) -----------------------------------------
+\RequirePackage[colorlinks=true, linkcolor=accentd, urlcolor=accentd,
+                citecolor=accentd]{hyperref}
+
+% --- helpers --------------------------------------------------------
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+% \guidetitle{Title}{Subtitle} -- the masthead block
+\newcommand{\guidetitle}[2]{%
+  \thispagestyle{fancy}%
+  {\sffamily\footnotesize\bfseries\color{accent}%
+    \raisebox{0.35ex}{\rule{6pt}{6pt}}\hspace{0.6em}\MakeUppercase{\kickertext}}\par
+  \vspace{5pt}
+  {\bfseries\color{ink}\fontsize{21}{25}\selectfont #1\par}
+  \vspace{2pt}
+  {\color{muted}\large #2\par}
+  \vspace{7pt}
+  {\color{accent}\rule{\linewidth}{1.3pt}}\par
+  \vspace{10pt}}
+
+\endinput

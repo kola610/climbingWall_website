@@ -91,9 +91,11 @@ currently active. Do not feed them `values`.
 
 | File | Covers |
 |---|---|
+| [docs/AGENTS_HANDOVER.md](docs/AGENTS_HANDOVER.md) | Current state: in-flight work, what's unverified, rules of engagement |
 | [README.md](README.md) | Setup, running, troubleshooting |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Every file and what each exported function does |
 | [measuring_pipeline.md](measuring_pipeline.md) | Raw line → Newtons → storage → jump height, in depth |
 | [calibration_pipeline.md](calibration_pipeline.md) | The wizard, the hang-split math, how scales are fitted |
 
-`docs/` holds LaTeX end-user guides (`*.tex` → `docs/pdfs/`). It is gitignored.
+`docs/` holds the LaTeX end-user guides and this handover. Sources are tracked; the
+built PDFs (`docs/GUIDES/`) and diagram exports (`docs/diagrams/*.png`, `*.svg`) are not.

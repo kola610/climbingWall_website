@@ -1,0 +1,677 @@
+% =====================================================================
+%  Climbing Wall -- Engineering Guide (developer handover, ~12 pages)
+%  Compile:  latexmk -pdf engineering_guide.tex
+%  Images live in ./images/engineering_guide/
+% =====================================================================
+\documentclass[11pt,a4paper]{article}
+\usepackage{climbingwall}
+\usetikzlibrary{positioning,arrows.meta}
+\usepackage{longtable}
+% ragged-right p-columns: justified cells full of \texttt paths stretch badly
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\graphicspath{{images/engineering_guide/}}
+\setdocname{Engineering Guide}
+% one big diagram: pin it where it is discussed rather than let it float away
+\renewcommand{\shotplacement}{p}
+
+\begin{document}
+
+\guidetitle{Engineering Guide}%
+  {Handover notes for the next developer --- how the system fits together,
+   what it assumes, and where it will bite.}
+
+You have inherited a force-measurement dashboard for the SMS Lab climbing wall.
+Four three-axis load-cell boards measure what a climber pulls on each hand and
+foot; a Python backend reads them over USB; a React frontend turns the readings
+into Newtons, charts them live, records sessions to disk, and computes jump
+height.
+
+This guide is not an API reference --- \code{ARCHITECTURE.md} in the repository
+root already lists every file and every exported function. What follows is the
+part that is not written down in the code: why the pieces are arranged the way
+they are, which assumptions are load-bearing, what will look like a bug but
+isn't, and what to check before you trust a number the dashboard prints.
+
+% ---------------------------------------------------------------
+\section{What to read, and in what order}
+
+The repository documents itself in four Markdown files at the root. They are
+maintained and current; do not re-derive from the source what is already
+written there.
+
+\begin{center}
+\begin{tabular}{@{}L{4.6cm}L{6.3cm}L{4.6cm}@{}}
+\toprule
+\textbf{File} & \textbf{Covers} & \textbf{Read it} \\
+\midrule
+\code{README.md} & Setup, running, troubleshooting & Day one \\
+This guide & Orientation, invariants, traps, open questions & Day one \\
+\code{ARCHITECTURE.md} & Every file, every exported function & When hunting for something \\
+\code{measuring\_pipeline.md} & Raw line $\rightarrow$ Newtons $\rightarrow$ storage $\rightarrow$ jump height & Before touching the data flow \\
+\code{calibration\_pipeline.md} & The wizard and its maths & Before touching calibration \\
+\code{CLAUDE.md} & The same rules, compressed, addressed to AI agents & If you work with one \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The four LaTeX guides in \code{docs/} (system quick start, user guide,
+calibration quick start, calibration guide) are written for the people who
+\emph{use} the wall, not for you. Read the user guide once anyway: it is the
+fastest description of what the software is supposed to do.
+
+\begin{warnbox}
+\textbf{\code{docs/} is gitignored.} The repository's \code{.gitignore} ignores
+the whole folder, so every LaTeX source and every built PDF --- including this
+guide --- exists only on the machine that made it. If you want the next person
+after you to receive it, either un-ignore the sources (keeping the PDFs out, or
+in, as you prefer) or move this file into the tracked part of the tree. It is a
+one-line change and it is the difference between a handover document and a
+local file.
+\end{warnbox}
+
+% ---------------------------------------------------------------
+\section{The system on one page}
+
+Three things run, and only three:
+
+\begin{enumerate}
+  \item \textbf{The boards.} Four PhidgetBridge amplifiers, three channels each
+        (X, Y, Z) --- twelve channels total --- plugged into a USB hub, plugged
+        into the laptop. There is no Raspberry Pi, no microcontroller firmware,
+        and no Web Serial. Older comments that mention any of those are stale;
+        trust the code.
+  \item \textbf{The backend} (\code{backend/app.py}, Flask, port 5001). It opens
+        the twelve channels, holds the latest value of each, and broadcasts them
+        over a WebSocket every 10\,ms. It also computes jump height, stores
+        recordings, and keeps the calibration files.
+  \item \textbf{The frontend} (\code{climbing\_wall\_website/}, React + Vite,
+        port 5173). It converts raw readings to Newtons, draws the charts, runs
+        the calibration wizard, and owns the zero.
+\end{enumerate}
+
+What travels over the WebSocket is deliberately dumb: one line per sample,
+twelve comma-separated \emph{raw voltage ratios} of order $10^{-6}$, at roughly
+100\,Hz. No units, no calibration, no coordinate transform. Everything that
+turns those numbers into physics happens in the browser, in
+\code{src/utils/serialParser.ts}.
+
+\begin{infobox}
+\textbf{A consequence worth internalising.} Recording CSVs contain
+\emph{calibrated Newtons}, not raw ratios --- the conversion happened in the
+browser before the data was ever sent to be saved. If the calibration was wrong
+when a session was captured, that session is permanently wrong; there is no raw
+archive to re-derive it from. Check the calibration before a measurement
+campaign, not after.
+\end{infobox}
+
+\screenshot{system_architecture}{0.88}{The full data flow, board serial numbers
+through to charts. Generated from \code{docs/diagrams/system\_architecture.drawio};
+its per-board serial-to-hold mapping matches the live
+\code{backend/phidget\_config.json}, \emph{not} the \code{DEFAULT\_CONFIG}
+fallback in \code{phidget\_stream.py}, which lists the same serials in a
+different order.}
+
+% ---------------------------------------------------------------
+\section{Getting it running}
+
+Two terminals, always.
+
+\begin{quote}\ttfamily\small
+>> cd backend\\
+>> source venv/bin/activate\hfill\textrm{\footnotesize(Windows: \texttt{venv\textbackslash Scripts\textbackslash activate})}\\
+>> python app.py\hfill\textrm{\footnotesize$\rightarrow$ \texttt{Running on http://127.0.0.1:5001}}
+\end{quote}
+
+\begin{quote}\ttfamily\small
+>> cd climbing\_wall\_website\\
+>> npm run dev\hfill\textrm{\footnotesize$\rightarrow$ \texttt{http://localhost:5173}}
+\end{quote}
+
+Vite proxies \code{/api} and the \code{/api/stream} WebSocket to port 5001, so
+the browser only ever talks to 5173. Two details in \code{vite.config.ts} are
+load-bearing and have both been debugged the hard way already: the stream rule
+must come \emph{before} the generic \code{/api} rule (otherwise the WebSocket
+upgrade is caught by the plain HTTP rule), and the target is spelled
+\code{127.0.0.1}, not \code{localhost} (Node resolves \code{localhost} to
+\code{::1} first, Flask's dev server binds IPv4 only, and the proxy gets
+\code{ECONNREFUSED}).
+
+\subsection{Working without hardware}
+
+With no boards attached the app falls back to \textbf{demo mode}: press
+\textsf{Start Recording} and \code{useSensorData} generates synthetic values.
+This is enough to develop nearly everything --- layout, charts, recordings,
+comparison, exports. It cannot do three things, and none of them is a bug:
+
+\begin{itemize}
+  \item \textbf{Zero Sensors stays disabled.} Mock data bypasses
+        \code{parseSerialLine} entirely, so the tare's sample ring is never fed.
+  \item \textbf{The calibration wizard cannot capture.} Same reason; a capture
+        times out after 8\,s with no samples.
+  \item \textbf{Jump height is fake.} Mock mode returns a random 20--120\,cm
+        rather than calling the backend.
+\end{itemize}
+
+\subsection{With hardware}
+
+\begin{itemize}
+  \item The Phidget driver must be approved once per machine (macOS:
+        \textsf{System Settings $\rightarrow$ Privacy \& Security}; Windows:
+        install the Phidget22 drivers). Without it, no channel ever attaches.
+  \item \textbf{Exactly one program may hold the boards.} They are single-open.
+        A second \code{app.py}, or the Phidget Control Panel left running, and
+        nothing attaches --- while the backend log looks perfectly healthy.
+  \item Restarting the backend requires re-clicking \textsf{Connect Device} in
+        the browser. The socket is gone; the UI does not reconnect itself.
+  \item Boards may be plugged in before or after the backend starts. Channels
+        are opened non-blocking and attach whenever hardware appears, usually
+        within a second or two.
+\end{itemize}
+
+% ---------------------------------------------------------------
+\section{The one invariant}
+
+\begin{warnbox}
+\textbf{Everything is stored in the sensor (board) frame. Never rotate on
+ingestion.}
+\end{warnbox}
+
+The wall is mounted with a backward decline of $\theta$ degrees from vertical
+(16$^\circ$ by default). The load cells are bolted to the wall, so their axes
+tilt with it:
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\multicolumn{2}{@{}l}{\textbf{Sensor frame} --- canonical, what everything stores} \\
+\midrule
+$X$ & in-plane, along the wall, positive up-slope \\
+$Y$ & sideways, positive right \\
+$Z$ & normal to the wall surface, positive out toward the climber \\
+\midrule
+\multicolumn{2}{@{}l}{\textbf{World frame} --- derived, display only} \\
+\midrule
+$X_{\text{world}} = X\cos\theta - Z\sin\theta$ & true vertical, up \\
+$Z_{\text{world}} = X\sin\theta + Z\cos\theta$ & true horizontal, out of the wall \\
+$Y_{\text{world}} = Y$ & unchanged \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The live buffer, IndexedDB, and the backend CSV all hold sensor-frame Newtons.
+The rotation is applied at \emph{render time} only, by
+\code{toDisplayFrameReadings} in \code{wallGeometry.ts}, and only when the user
+has explicitly opted into the world view.
+
+$\theta$ legitimately appears in exactly three places:
+
+\begin{enumerate}
+  \item \textbf{In the calibration wizard}, to split one hang into its $X$ and
+        $Z$ components ($W\cos\theta$ and $W\sin\theta$).
+  \item \textbf{In the world-frame display}, as the opt-in rotation above.
+  \item \textbf{In the backend jump algorithm}, which projects wall-frame forces
+        to global vertical --- see the open question in section 12.
+\end{enumerate}
+
+Nowhere else. This invariant was inverted once already and produced
+double-corrected jump heights that looked plausible and were wrong. If you find
+yourself applying $\theta$ in \code{serialParser.ts}, in \code{useSensorData.ts},
+or anywhere before a \code{POST}, stop: that is the bug you are about to
+introduce, not the fix you are looking for.
+
+% ---------------------------------------------------------------
+\section{Data contracts}
+
+\subsection{Twelve channels, one order}
+
+Every length-12 array in the frontend is in \textbf{GUI-slot order}:
+
+\begin{center}
+\code{[Left Hand, Right Hand, Left Foot, Right Foot]} $\times$ \code{(X, Y, Z)},
+\quad flat index $=$ \code{board * 3 + axis}
+\end{center}
+
+The hardware streams a \emph{different} order (group 0 = Left Foot, 1 = Left
+Hand, 2 = Right Foot, 3 = Right Hand), and \code{SENSOR\_GROUP\_ORDER = [1, 3,
+0, 2]} in \code{serialParser.ts} remaps it. Which physical board is which group
+is not in the code at all --- it is \code{bridgeSerials} in
+\code{backend/phidget\_config.json}, where the list index is the group number.
+\textbf{If sensors appear swapped in the GUI, reorder that list.} Nobody should
+ever need to edit \code{SENSOR\_GROUP\_ORDER}.
+
+Recording CSVs follow the GUI order too: \code{S1} is Left Hand, \code{S2} Right
+Hand, \code{S3} Left Foot, \code{S4} Right Foot.
+
+\subsection{Two representations of a sample}
+
+\begin{center}
+\begin{tabular}{@{}L{2.4cm}L{4.1cm}L{2.2cm}L{6.4cm}@{}}
+\toprule
+\textbf{Name} & \textbf{What it is} & \textbf{Magnitude} & \textbf{Who consumes it} \\
+\midrule
+\code{signedRaw} & Post axis-sign, \emph{pre}-tare, \emph{pre}-scale & $\sim10^{-6}$ & The calibration wizard and the zero \\
+\code{values} & Fully calibrated Newtons, sensor frame & $\sim10^{2}$ & Everything else: buffer, charts, IndexedDB, CSV, jump test \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The split is the reason the wizard and the tare work at all: both average
+\code{signedRaw}, so their measurements do not depend on whatever offset or
+scale happens to be active while they run. Feeding them \code{values} would make
+each calibration depend on the previous one. The transform itself is a fixed
+four-step chain:
+
+\begin{figure}[H]\centering
+\begin{tikzpicture}[
+  font=\footnotesize,
+  box/.style={draw=line, rounded corners=2pt, fill=soft, inner sep=5pt,
+              minimum height=8mm, minimum width=15mm, align=center},
+  lbl/.style={align=center, text=ink},
+  arr/.style={-{Latex[length=4pt]}, draw=accent, thick}]
+  \node[lbl] (in) {12 raw\\ratios};
+  \node[box, right=5mm of in]  (r) {remap};
+  \node[box, right=5mm of r]   (s) {sign};
+  \node[box, right=5mm of s]   (t) {tare};
+  \node[box, right=5mm of t]   (c) {scale};
+  \node[lbl, right=5mm of c]   (out) {Newtons\\(sensor frame)};
+  \draw[arr] (in) -- (r); \draw[arr] (r) -- (s); \draw[arr] (s) -- (t);
+  \draw[arr] (t) -- (c);  \draw[arr] (c) -- (out);
+  \node[lbl, below=8mm of s, text=muted]
+    (tap) {\code{signedRaw} $\rightarrow$ calibration wizard, Zero Sensors};
+  \draw[arr, draw=muted] (s.south) -- (tap.north);
+\end{tikzpicture}
+\caption{\code{parseSerialLine} in \code{serialParser.ts}. The tap after the
+sign step is what keeps calibration and tare independent of each other.}
+\end{figure}
+
+\subsection{Sample numbers are not indices}
+
+Each buffered reading carries an absolute, monotonically increasing
+\code{sampleNumber}. The buffer is trimmed when it exceeds 360\,000 samples, so
+array indices shift underneath you; sample numbers do not. The jump test marks
+its window by sample number for exactly this reason, and \textsf{Start Fresh}
+resets the numbering, which makes a stale jump window unreachable rather than
+silently wrong.
+
+The backend's recording window (\code{?from=} and \code{?to=} on the data
+endpoint) is the opposite: those are 0-based \emph{row positions} in the file,
+not sample numbers. The docstring on \code{\_slice\_and\_downsample} says so;
+believe it.
+
+% ---------------------------------------------------------------
+\section{Where to change what}
+
+\begin{longtable}{@{}L{5.6cm}L{9.6cm}@{}}
+\toprule
+\textbf{You want to} & \textbf{Touch} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{You want to} & \textbf{Touch} \\
+\midrule
+\endhead
+Fix a sensor showing up as the wrong body part &
+  \code{backend/phidget\_config.json} $\rightarrow$ \code{bridgeSerials}. No code change. \\
+Change the sample rate &
+  \code{phidget\_config.json} $\rightarrow$ \code{dataIntervalMs}. This is also
+  the single source of truth for the jump test's $dt$. \\
+Change the amplifier gain &
+  \code{phidget\_config.json} $\rightarrow$ \code{bridgeGain}. Invalidates every
+  saved scale --- recalibrate afterwards. \\
+Change how raw becomes Newtons &
+  \code{src/utils/serialParser.ts}. \\
+Change the calibration maths &
+  \code{src/utils/calibration.ts}; the wizard's UI is
+  \code{dashboard/CalibrationModal.tsx}, its capture machinery is
+  \code{hooks/useCalibration.ts}. \\
+Change the zero &
+  \code{src/utils/runtimeOffset.ts} plus \code{hooks/useTareOffset.ts}. \\
+Change anything about the wall angle or the world view &
+  \code{src/utils/wallGeometry.ts}. Extend \code{wallDeclineSelfCheck()} in the
+  same commit. \\
+Change buffering, the UI sync rate, or autosave &
+  \code{hooks/useSensorData.ts}. \\
+Change a chart &
+  \code{utils/dataProcessing.ts} (data building), \code{utils/chartOptions.ts}
+  (behaviour), \code{components/dashboard/tabs/*} (layout). \\
+Add a backend endpoint &
+  \code{backend/app.py}, plus a thin client in \code{src/utils/*Api.ts}.
+  Components never \code{fetch} directly. \\
+Change the jump physics &
+  \code{backend/app.py} $\rightarrow$ \code{calculate\_jump\_height\_with\_angle}. \\
+Wire a new hook into the app &
+  \code{components/sensor-dashboard.tsx} --- and nothing else. \\
+\bottomrule
+\end{longtable}
+
+\code{sensor-dashboard.tsx} is the only orchestrator in the frontend. It
+instantiates the hooks, routes each incoming line to its three sinks through
+stable refs (which is how the circular dependency between the stream and its
+consumers is broken), and composes the layout. No business logic belongs in it.
+When you are tempted to put "just one calculation" there, that calculation
+belongs in a hook or a util.
+
+% ---------------------------------------------------------------
+\section{Calibration, profiles, and the zero}
+
+Three layers, deliberately separated, and the separation is the design:
+
+\begin{center}
+\begin{tabular}{@{}L{3.2cm}L{5.0cm}L{6.8cm}@{}}
+\toprule
+\textbf{Layer} & \textbf{What} & \textbf{Where it lives} \\
+\midrule
+Active calibration &
+  \code{axisSigns} and \code{axisScales}, 12 numbers each &
+  \code{src/config/calibration\_settings.json} (written by the backend),
+  mirrored in \code{localStorage["calibration"]} \\
+Profile library &
+  Named calibrations you can load &
+  \code{backend/calibration\_profiles.json} --- gitignored, so a fresh clone has none \\
+Zero (tare) &
+  A volatile offset in signed-raw space &
+  \code{localStorage["tareOffset"]} only. Never saved with the calibration,
+  never sent to the backend \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The zero was part of the saved calibration once and was deliberately pulled out.
+What stays in the calibration is only what genuinely belongs to the hardware:
+the sign of each axis and its Newtons-per-raw-unit slope. Where zero happens to
+sit today is a property of the moment --- temperature, a hold that has been
+leaned on, a cable being dressed --- so it is measured live from
+\textsf{Zero Sensors} (about 150 samples, roughly 1.5\,s) and cached only so a
+page reload does not lose it.
+
+Note the ordering consequence: the tare is applied \emph{before} the scale, in
+signed-raw space, which is why it stays valid when you change the scale and why
+the wizard is unaffected by whatever zero is in effect.
+
+\begin{infobox}
+\textbf{$\theta$ is not part of the calibration.} It is stored separately
+(\code{localStorage["cw:wallDeclineDeg"]}) and is only needed \emph{during} a
+hang capture, to interpret how much of the hung weight landed on $X$ versus $Z$.
+The fitted scales are an intrinsic sensor property; in the ideal orthogonal
+model the $\cos\theta$ and $\sin\theta$ factors cancel in the least-squares
+slope. Changing the wall angle does not require recalibrating.
+\end{infobox}
+
+Editing a profile's numbers by hand is intentionally not offered. The only way
+to change a profile's values is to load it, recalibrate against real weights,
+and save the changes back --- the \textsf{Recalibrate} button in the profiles
+modal does exactly that. If a future request asks for raw number entry, the
+answer that was already given once is no.
+
+% ---------------------------------------------------------------
+\section{Decisions that look like bugs}
+
+Every item here was a deliberate choice. Each has a failure mode you will
+reintroduce if you "clean it up".
+
+\begin{center}
+\begin{tabular}{@{}L{5.0cm}L{10.2cm}@{}}
+\toprule
+\textbf{The odd thing} & \textbf{Why, and what breaks if you undo it} \\
+\midrule
+The live buffer is a mutable ref, pushed to in place &
+  At 100\,Hz, React state would mean thousands of re-renders per second. A
+  50\,ms interval copies a display slice instead ($\sim$20\,fps). Never hand
+  \code{allSensorDataRef.current} to React state or Chart.js directly. \\
+\code{decimate} sometimes returns its input array &
+  Same reference means memoised chart components can skip work. But with the
+  window set to "all", that input \emph{is} the live buffer, so
+  \code{buildDisplaySlice} copies in that case --- otherwise Chart.js would read
+  an array being mutated underneath it. \\
+Charts are capped at 1000 points, twice &
+  Once in the frontend (\code{decimate}), once in the backend
+  (\code{MAX\_CHART\_POINTS}). Even-stride selection plus the 5-sample moving
+  average is visually faithful and keeps payloads and render cost bounded. \\
+The buffer is trimmed in 36\,000-sample chunks &
+  Capped at 360\,000 ($\sim$1 hour). Without it, an all-day session grows
+  unbounded and the 5\,s IndexedDB autosave re-serialises the lot each time. \\
+A slow WebSocket client drops its own samples &
+  Each client has a bounded queue; a full queue drops rather than blocks, so one
+  stalled browser tab cannot stall the broadcast thread for everyone. \\
+The broadcast loop skips when nothing is attached &
+  No clients or no attached channels means no line is sent at all --- which is
+  why a completely unplugged rig produces silence rather than a stream of zeros. \\
+The recordings download endpoint ignores the downsampler &
+  The chart endpoint thins deliberately; an export must not. Someone exporting
+  "their data" gets the file that was written at save time, every sample. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ---------------------------------------------------------------
+\section{Hardware realities}
+
+The physical rig does not behave like an ideal data source, and several
+decisions in \code{phidget\_stream.py} exist only because of that.
+
+\begin{itemize}
+  \item \textbf{Channels are opened non-blocking.} The backend starts, and runs,
+        with no hardware present. Channels attach whenever boards appear. This
+        is why the frontend waits 2\,s after the socket opens before judging how
+        many channels are present.
+  \item \textbf{A detached channel is forced to \code{0.0}}, not left at its last
+        reading. A frozen last value is indistinguishable from a real constant
+        force in a chart and in a recording; a hard zero at least reads as
+        obviously wrong.
+  \item \textbf{Partial attachment is normal and is warned about.} The banner
+        names the sensor ("Only 9 of 12 sensor channels are attached --- check:
+        Right Hand"), and missing channels read 0.
+  \item \textbf{Flask runs with \code{use\_reloader=False}.} The reloader forks a
+        second process that would also open the channels; single-open means both
+        processes then fail to attach and the symptom looks like broken hardware.
+  \item \textbf{Network-server discovery is deliberately off.} With the driver
+        working, a channel silently attaching through a Phidget Network Server
+        instead of USB would be nondeterministic and miserable to debug.
+\end{itemize}
+
+\begin{warnbox}
+Hardware is never the ideal on paper. Load cells drift, amplifiers have offsets,
+a board that has been re-bolted reads differently. The calibration wizard and
+the live zero are not ceremony to be optimised away --- they are the knobs that
+absorb the difference between the model and the wall.
+\end{warnbox}
+
+% ---------------------------------------------------------------
+\section{Checking your work}
+
+There is no test framework, and that is a considered choice rather than
+neglect. What exists instead:
+
+\begin{enumerate}
+  \item \textbf{The build gate.} \code{npm run build} runs \code{tsc} in strict
+        mode (\code{noUnusedLocals}, \code{noUnusedParameters}) and then
+        bundles. It catches most breakage. This is \emph{the} gate --- run it
+        before every commit.
+  \item \textbf{\code{wallDeclineSelfCheck()}} in \code{wallGeometry.ts}. Three
+        assertions covering the rotation model: $\theta = 0$ is the identity, a
+        pure vertical load resolves to all-$X$, a pure normal push splits as
+        $(-\sin\theta, \cos\theta)$. It runs automatically in the browser console
+        in DEV. \textbf{Extend it when you touch the geometry} rather than
+        adding a test runner.
+  \item \textbf{\code{backend/test\_recordings.py}}. Plain \code{assert}s, run
+        with \code{python test\_recordings.py}. It covers the recording
+        window/downsample arithmetic, whose edge cases (reversed bounds,
+        out-of-range bounds) are reachable by dragging a range slider.
+  \item \textbf{\code{backend/board\_diagnostic.py}}. Not part of the app: a
+        forensic tool that answers "is this board's problem calibration, or is it
+        mechanical?" from a recording of known-magnitude pulls. Its argument is
+        that a calibration fault can only rescale each axis independently, so if
+        no per-axis scaling reproduces the known applied magnitudes,
+        recalibrating will never fix that board.
+  \item \textbf{The manual smoke path}, when hardware is attached: connect,
+        confirm 12 of 12 channels, zero with the wall unloaded, hang a known
+        weight and check the Newtons are sane, record, save, reload the
+        recording from the Recordings tab.
+\end{enumerate}
+
+Both automated gates were green on 2026-08-20, with the in-flight
+recordings-browser changes described in section 12 present in the tree.
+
+\begin{infobox}
+If you add non-trivial logic --- a parser, a loop, a piece of physics --- leave
+one runnable check behind it, in the style already used here: an
+\code{assert}-based \code{demo()} next to the code, or three lines added to
+\code{wallDeclineSelfCheck()}. Do not introduce a test framework to hold six
+assertions.
+\end{infobox}
+
+% ---------------------------------------------------------------
+\section{Traps}
+
+\begin{center}
+\begin{tabular}{@{}L{5.4cm}L{9.8cm}@{}}
+\toprule
+\textbf{Thing} & \textbf{Why it bites} \\
+\midrule
+\code{allSensorDataRef.current} is mutated in place &
+  Handing it to React state means no re-render (same reference) and an array
+  changing underneath Chart.js. \\
+Mock mode bypasses \code{parseSerialLine} &
+  So \textsf{Zero Sensors} stays disabled with no hardware --- the tare ring is
+  never fed. Not a bug. \\
+Vite ignores \code{calibration\_settings.json} &
+  The backend writes \code{src/config/calibration\_settings.json} on every
+  calibration save. Without the ignore in \code{vite.config.ts},
+  Vite full-page-reloads and drops the stream mid-wizard. \\
+Flask runs \code{use\_reloader=False} &
+  Two processes cannot both open single-open boards. \\
+\code{calibration\_profiles.json} is gitignored &
+  The profile library is local-only. A fresh clone starts with none, and nothing
+  warns you. \\
+The Vite proxy targets \code{127.0.0.1} &
+  Not \code{localhost}. IPv6 resolution order versus Flask's IPv4-only bind. \\
+IndexedDB is at store version 2 &
+  The v1 $\rightarrow$ v2 upgrade \emph{drops} the buffer, because the canonical
+  frame changed from world to sensor. Stale data must never be reinterpreted. \\
+Recording CSVs hold calibrated Newtons &
+  Not raw ratios. A bad calibration at capture time cannot be undone later. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ---------------------------------------------------------------
+\section{Open questions and rough edges}
+
+This is the honest part of the handover: things that are unresolved, unverified,
+or simply unfinished as of 2026-08-20.
+
+\subsection{The jump projection axes --- verify before trusting absolute heights}
+
+\code{calculate\_jump\_height\_with\_angle} projects the summed hand and foot
+forces onto a global vertical axis like this:
+
+\begin{quote}\ttfamily\small
+foot\_global\_z = foot[:,2]*cos($\theta$) + foot[:,1]*sin($\theta$)
+\end{quote}
+
+Column 2 is $Z$ (wall normal) and column 1 is $Y$ (sideways). But the frontend
+sends sensor-frame triples $[X, Y, Z]$, and under this project's own convention
+the weight-bearing axes are $X$ (in-plane, $\approx W\cos\theta$) and $Z$
+(normal, $\approx W\sin\theta$), while $Y$ is lateral and physically independent
+of the wall tilt. A tilt projection in the $X$--$Z$ plane that consumes $Y$ and
+ignores $X$ does not obviously correspond to the geometry documented everywhere
+else.
+
+The recordings support the convention rather than the code: in
+\code{peter\_test\_1\_20260812\_125458.csv} the large mean loads sit on $X$
+($-83$, $-135$, $-54$\,N across the three live boards) with $Z$ at $+37$ to
+$+49$\,N and $Y$ small, exactly as a hang on a $16^\circ$ overhang should look.
+
+This may still be intentional --- the function's docstring is ambiguous about
+whether the height it returns is vertical or wall-perpendicular, and it applies
+a further $\cos\theta$ at the end. Do not "fix" it from the armchair.
+\textbf{Measure a jump of known height and compare} before changing anything;
+then, whichever way it comes out, write the answer down in
+\code{measuring\_pipeline.md}. Until then, treat absolute jump heights as
+unvalidated --- which is also what the UI says, since the tab is labelled
+\textsf{Jump Test (BETA)}.
+
+Two smaller things in the same function: the "first 1 second" comment sits above
+\code{total\_force\_z[: still\_end * 3]}, which is three seconds; and
+\code{i\_max\_accel} is the argmax of foot \emph{force}, not acceleration.
+Neither is necessarily wrong, but both will mislead the next reader.
+
+\subsection{The Right Foot board}
+
+The fourth GUI slot (\code{S4}, Right Foot, bottom right) reads flat zero
+through recent captures, and the commit history is blunt about it ("bottom right
+board is malicious"). \code{board\_diagnostic.py} exists because this was being
+chased. Before blaming code for a missing channel, check the attach count in the
+warning banner and run the diagnostic against a known-weight recording.
+
+\subsection{Work in flight}
+
+The working tree on branch \code{minimalstic\_code} carries an unfinished
+recordings browser: listing all recordings rather than the newest five
+(\code{?limit=N} now opt-in), rename, delete, verbatim CSV download, and a
+\code{[from, to)} row window on the data endpoint so zooming actually raises
+resolution instead of magnifying the same thinned points. The window arithmetic
+is covered by \code{test\_recordings.py}; the UI
+(\code{RecordingsBrowserModal.tsx}) is newer than the rest. Finish or discard it
+deliberately --- do not let it rot in the tree.
+
+\subsection{Smaller items}
+
+\begin{itemize}
+  \item The frontend bundles to a single $\sim$820\,kB chunk. Nobody has needed
+        to care yet; it is a lab tool on a local network, not a public site.
+        \code{katex} is in there to render the wizard's formulas.
+  \item \code{useCalibration.ts}'s header comment still names
+        \code{captureAxis} and \code{commitAxis}; the real exports are
+        \code{captureAverages} and \code{commitChannels}. Typical drift --- fix
+        it as you pass.
+  \item \code{docs/} is gitignored, as noted in section 1.
+\end{itemize}
+
+% ---------------------------------------------------------------
+\section{House rules}
+
+Conventions this codebase actually follows. Match them and your changes will
+read like they belong.
+
+\begin{itemize}
+  \item \textbf{Comments explain \emph{why}}, never what. A physical ceiling, a
+        non-obvious threshold, a trap that has already been hit once. Migration
+        history ("this used to be on the Pi") belongs in git, not in a file.
+  \item \textbf{No line numbers in documentation.} They rot within a single
+        commit. Reference the file and the function name.
+  \item \textbf{Prefer configuration over code.} The board mapping, sample rate,
+        and gain all live in \code{phidget\_config.json} specifically so that
+        the most common field fix requires no developer.
+  \item \textbf{Keep the four Markdown docs in step with the code.} They are the
+        contract the next person reads; a stale doc is worse than no doc.
+  \item \textbf{Smallest change that works.} This codebase is roughly 9\,500
+        lines including the backend, and it stays legible because features were
+        repeatedly cut rather than added. Before building an abstraction, check
+        whether the standard library, the platform, or an already-installed
+        dependency covers it.
+\end{itemize}
+
+% ---------------------------------------------------------------
+\section{Your first hour}
+
+\begin{enumerate}
+  \item Start both servers and open the dashboard in demo mode. Press
+        \textsf{Start Recording} and watch the charts fill.
+  \item Read \code{measuring\_pipeline.md} end to end with the app open beside
+        it. It is the one document that will save you the most time.
+  \item Run both self-checks: \code{npm run build}, and
+        \code{python backend/test\_recordings.py}. Open the browser console and
+        confirm \code{wallDeclineSelfCheck()} reports three passes.
+  \item Open the Recordings tab and load a saved capture from
+        \code{backend/saved\_recordings/} --- real data, real shapes, and a good
+        feel for what the numbers should look like.
+  \item Read \code{serialParser.ts} in full. It is 84 lines and it is the heart
+        of the system.
+\end{enumerate}
+
+\vspace{4pt}
+{\color{muted}\small Written 2026-08-20, against branch \code{minimalstic\_code}.
+When it goes stale, edit it --- it is a source file like any other.}
+
+\end{document}

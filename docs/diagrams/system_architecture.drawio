@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="31.1.8">
+  <diagram name="System Architecture">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1980" pageHeight="2300" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="Climbing Wall Force Dashboard &#8212; System Architecture&#xa;&lt;font style=&quot;font-size:14px;font-weight:normal&quot;&gt;Four 3&#8209;axis load cells &#8594; PhidgetBridge boards &#8594; USB &#8594; Flask backend &#8594; React frontend. Raw voltage ratios travel the wire; calibration to Newtons happens in the browser.&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="1900" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ============ BAND A : PHYSICAL ============ -->
+        <mxCell id="bandA" value="1 &#183; Climbing wall &#8212; physical sensors" style="swimlane;startSize=36;html=1;whiteSpace=wrap;fillColor=none;strokeColor=#d79b00;fontSize=16;fontStyle=1;fontColor=#a06800;align=left;spacingLeft=16;verticalAlign=middle;collapsible=0;container=1;pointerEvents=0;swimlaneFillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="40" y="120" width="1900" height="230" as="geometry" />
+        </mxCell>
+        <mxCell id="axisnote" value="&lt;b&gt;Sensor (board) frame &#8212; the canonical frame everywhere downstream:&lt;/b&gt;&#160; X = along the wall (in&#8209;plane) &#183; Y = sideways (right) &#183; Z = out of the wall. The wall&#8209;decline angle &#952; is NEVER applied here." style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontColor=#7a5a00;" vertex="1" parent="bandA">
+          <mxGeometry x="80" y="46" width="1760" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="lh" value="&lt;b&gt;Left Hand hold&lt;/b&gt;&#xa;3&#8209;axis load cell (X, Y, Z)&#xa;&lt;font style=&quot;font-size:11px&quot;&gt;3 strain&#8209;gauge bridges&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="bandA">
+          <mxGeometry x="80" y="92" width="380" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="rh" value="&lt;b&gt;Right Hand hold&lt;/b&gt;&#xa;3&#8209;axis load cell (X, Y, Z)&#xa;&lt;font style=&quot;font-size:11px&quot;&gt;3 strain&#8209;gauge bridges&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="bandA">
+          <mxGeometry x="540" y="92" width="380" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="lf" value="&lt;b&gt;Left Foot hold&lt;/b&gt;&#xa;3&#8209;axis load cell (X, Y, Z)&#xa;&lt;font style=&quot;font-size:11px&quot;&gt;3 strain&#8209;gauge bridges&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="bandA">
+          <mxGeometry x="1000" y="92" width="380" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="rf" value="&lt;b&gt;Right Foot hold&lt;/b&gt;&#xa;3&#8209;axis load cell (X, Y, Z)&#xa;&lt;font style=&quot;font-size:11px&quot;&gt;3 strain&#8209;gauge bridges&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="bandA">
+          <mxGeometry x="1460" y="92" width="380" height="112" as="geometry" />
+        </mxCell>
+
+        <!-- ============ BAND B : HARDWARE / USB ============ -->
+        <mxCell id="bandB" value="2 &#183; Hardware link &#8212; PhidgetBridge over USB" style="swimlane;startSize=36;html=1;whiteSpace=wrap;fillColor=none;strokeColor=#d79b00;fontSize=16;fontStyle=1;fontColor=#a06800;align=left;spacingLeft=16;verticalAlign=middle;collapsible=0;container=1;pointerEvents=0;swimlaneFillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="40" y="410" width="1900" height="400" as="geometry" />
+        </mxCell>
+        <mxCell id="brlh" value="&lt;b&gt;PhidgetBridge&lt;/b&gt;&#xa;S/N &lt;b&gt;293698&lt;/b&gt; &#8212; wire group 1&#xa;channels 0,1,2 = X,Y,Z &#183; gain 128" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="bandB">
+          <mxGeometry x="80" y="60" width="380" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="brrh" value="&lt;b&gt;PhidgetBridge&lt;/b&gt;&#xa;S/N &lt;b&gt;293701&lt;/b&gt; &#8212; wire group 3&#xa;channels 0,1,2 = X,Y,Z &#183; gain 128" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="bandB">
+          <mxGeometry x="540" y="60" width="380" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="brlf" value="&lt;b&gt;PhidgetBridge&lt;/b&gt;&#xa;S/N &lt;b&gt;481661&lt;/b&gt; &#8212; wire group 0&#xa;channels 0,1,2 = X,Y,Z &#183; gain 128" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="bandB">
+          <mxGeometry x="1000" y="60" width="380" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="brrf" value="&lt;b&gt;PhidgetBridge&lt;/b&gt;&#xa;S/N &lt;b&gt;481689&lt;/b&gt; &#8212; wire group 2&#xa;channels 0,1,2 = X,Y,Z &#183; gain 128" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="bandB">
+          <mxGeometry x="1460" y="60" width="380" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="hub" value="&lt;b&gt;Powered USB hub&lt;/b&gt;&#xa;4 bridges &#8594; one USB port on the host machine&#xa;&lt;i&gt;There is no Raspberry Pi and no Web Serial.&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="bandB">
+          <mxGeometry x="760" y="260" width="380" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="hwnote" value="&lt;b&gt;Which physical board is which body part is configuration, not code:&lt;/b&gt;&#160; the &lt;i&gt;index&lt;/i&gt; of a serial in &lt;b&gt;bridgeSerials[]&lt;/b&gt; (backend/phidget_config.json) is its wire group. If sensors look swapped in the GUI, reorder that list &#8212; never edit the parser." style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontColor=#7a5a00;" vertex="1" parent="bandB">
+          <mxGeometry x="80" y="356" width="1760" height="26" as="geometry" />
+        </mxCell>
+
+        <!-- ============ BAND C : BACKEND ============ -->
+        <mxCell id="bandC" value="3 &#183; Backend &#8212; Python / Flask on the host machine (localhost:5001)" style="swimlane;startSize=36;html=1;whiteSpace=wrap;fillColor=none;strokeColor=#82b366;fontSize=16;fontStyle=1;fontColor=#4d7a35;align=left;spacingLeft=16;verticalAlign=middle;collapsible=0;container=1;pointerEvents=0;swimlaneFillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="40" y="850" width="1900" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="stream" value="&lt;b&gt;phidget_stream.py&lt;/b&gt;&#xa;&#xa;&#8226; opens 12 VoltageRatioInput channels, non&#8209;blocking&#xa;&#160;&#160; (backend runs fine with hardware unplugged)&#xa;&#8226; broadcast loop @ &lt;b&gt;100 Hz&lt;/b&gt; (dataIntervalMs = 10)&#xa;&#8226; a detached channel is forced to 0.0, never frozen&#xa;&#8226; one bounded queue per WS client &#8212; a slow client&#xa;&#160;&#160; drops its own samples, not everyone's" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=6;" vertex="1" parent="bandC">
+          <mxGeometry x="60" y="60" width="440" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="appy" value="&lt;b&gt;app.py &#8212; Flask REST API&lt;/b&gt;&#xa;&#xa;&lt;b&gt;POST /api/jump&lt;/b&gt; &#8212; the only physics here: wall&#8209;frame force &#8594; global vertical, minus body&#xa;weight, double&#8209;integrated a&#8594;v&#8594;x. dt comes from phidget_config.json, never from the client.&#xa;&lt;b&gt;GET/POST /api/calibration&lt;/b&gt; &#183; &lt;b&gt;/api/calibration/profiles&lt;/b&gt; &#8212; store &amp; validate axisSigns / axisScales&#xa;&lt;b&gt;POST /api/recordings/save&lt;/b&gt; &#183; &lt;b&gt;GET /api/recordings[/&lt;id&gt;/data]&lt;/b&gt; &#8212; write CSV + meta, list 5 newest, downsample to 1000 pts&#xa;&lt;b&gt;GET /api/phidgets/status&lt;/b&gt; &#8212; per&#8209;board attach state; also boots the channels on first call" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=6;" vertex="1" parent="bandC">
+          <mxGeometry x="620" y="60" width="560" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="disk" value="&lt;b&gt;Host disk&lt;/b&gt;&#xa;saved_recordings/*.csv + *.meta.json&#160; (sensor&#8209;frame Newtons)&#xa;calibration_settings.json&#160; (written into the frontend src tree)&#xa;calibration_profiles.json&#160; (gitignored, local only)&#xa;phidget_config.json&#160; (serials, gain, sample interval)" style="shape=cylinder3;boundedLbl=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;fontColor=#333333;" vertex="1" parent="bandC">
+          <mxGeometry x="1300" y="60" width="540" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="cnote" value="&lt;b&gt;The backend does no calibration.&lt;/b&gt; It serves raw voltage ratios (~1e&#8209;6) and one physics endpoint. &#183; Flask runs &lt;b&gt;use_reloader=False&lt;/b&gt;: a forked second process would fight for the single&#8209;open Phidget channels and both would fail to attach." style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontColor=#4d7a35;" vertex="1" parent="bandC">
+          <mxGeometry x="60" y="250" width="1020" height="35" as="geometry" />
+        </mxCell>
+
+        <!-- ============ BAND D : FRONTEND ============ -->
+        <mxCell id="bandD" value="4 &#183; Frontend &#8212; React + Vite (localhost:5173, proxies /api &#8594; 5001)" style="swimlane;startSize=36;html=1;whiteSpace=wrap;fillColor=none;strokeColor=#6c8ebf;fontSize=16;fontStyle=1;fontColor=#3d5a80;align=left;spacingLeft=16;verticalAlign=middle;collapsible=0;container=1;pointerEvents=0;swimlaneFillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1210" width="1900" height="800" as="geometry" />
+        </mxCell>
+
+        <mxCell id="d1" value="&lt;b&gt;useBackendStream&lt;/b&gt;&#xa;&#xa;WebSocket client for /api/stream.&#xa;connect() resolves only once the socket&#xa;is truly open. Surfaces hardwareWarning&#xa;(partial attach) and mockModeActive&#xa;(backend unreachable &#8594; synthetic data)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=6;" vertex="1" parent="bandD">
+          <mxGeometry x="60" y="70" width="360" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="d2" value="&lt;b&gt;sensor-dashboard.tsx&lt;/b&gt;&#xa;handleSerialLine(line)&#xa;&#xa;The only orchestrator. Wires the stream to&#xa;its three sinks through stable refs.&#xa;No business logic lives here." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=6;" vertex="1" parent="bandD">
+          <mxGeometry x="60" y="270" width="360" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="d3" value="&lt;b&gt;parseSerialLine&lt;/b&gt;&#160; (utils/serialParser.ts)&#xa;&lt;i&gt;the transform pipeline &#8212; where raw becomes Newtons&lt;/i&gt;&#xa;&#xa;&lt;b&gt;1&lt;/b&gt;&#160; parse 12 floats, reject any non&#8209;finite line&#xa;&lt;b&gt;2&lt;/b&gt;&#160; remap wire groups &lt;b&gt;[1, 3, 0, 2]&lt;/b&gt; &#8594; GUI order&#xa;&#160;&#160;&#160;&#160; [Left Hand, Right Hand, Left Foot, Right Foot] &#215; (X,Y,Z)&#xa;&lt;b&gt;3&lt;/b&gt;&#160; &#215; axisSigns&#160;&#160;&#8594;&#160; &lt;b&gt;signedRaw&lt;/b&gt;&#160; (pre&#8209;tare, pre&#8209;scale)&#xa;&lt;b&gt;4&lt;/b&gt;&#160; &#8722; runtime tare (the volatile zero)&#xa;&lt;b&gt;5&lt;/b&gt;&#160; &#215; axisScales&#160;&#8594;&#160; &lt;b&gt;values&lt;/b&gt; &#8212; Newtons, &lt;b&gt;sensor frame&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=6;" vertex="1" parent="bandD">
+          <mxGeometry x="480" y="70" width="440" height="250" as="geometry" />
+        </mxCell>
+        <mxCell id="d5" value="&lt;b&gt;Calibration &amp; tare state&lt;/b&gt;&#xa;&#xa;&lt;b&gt;useCalibration&lt;/b&gt; &#8212; the wizard: capture averages per&#xa;axis, least&#8209;squares fit &#8594; &lt;b&gt;axisScales&lt;/b&gt; (persisted)&#xa;&lt;b&gt;useTareOffset&lt;/b&gt; &#8212; &quot;Zero Sensors&quot;: mean of the last&#xa;~150 samples &#8594; &lt;b&gt;runtime offset&lt;/b&gt; (volatile, never saved&#xa;to the backend; only cached in localStorage)&#xa;&#xa;Both consume &lt;b&gt;signedRaw&lt;/b&gt;, so their results do not&#xa;depend on whichever calibration is active." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=6;" vertex="1" parent="bandD">
+          <mxGeometry x="480" y="390" width="440" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="d4" value="&lt;b&gt;useSensorData&lt;/b&gt;&#xa;&#xa;Live buffer in a &lt;i&gt;mutable ref&lt;/i&gt; &#8212; no&#xa;re&#8209;render per sample. Capped at&#xa;360 000 samples (~1 h @ 100 Hz).&#xa;Copies a display slice to React state&#xa;at 20 fps, decimated to &#8804;1000 points." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=6;" vertex="1" parent="bandD">
+          <mxGeometry x="1020" y="70" width="360" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="d11" value="&lt;b&gt;IndexedDB&lt;/b&gt;&#xa;climbing&#8209;wall/recordings (v2)&#xa;survives a page reload" style="shape=cylinder3;boundedLbl=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;fontColor=#333333;" vertex="1" parent="bandD">
+          <mxGeometry x="1060" y="320" width="280" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="d10" value="&lt;b&gt;wallGeometry.toDisplayFrameReadings&lt;/b&gt;&#xa;&#xa;The &lt;b&gt;only&lt;/b&gt; place the wall&#8209;decline angle &#952; is&#xa;applied &#8212; at render time, as an opt&#8209;in view.&#xa;&quot;sensor&quot; returns the same reference; &quot;world&quot;&#xa;maps a rotated copy.&#xa;&lt;i&gt;Applying &#952; earlier double&#8209;corrects jump height.&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=6;" vertex="1" parent="bandD">
+          <mxGeometry x="1460" y="70" width="360" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="d9" value="&lt;b&gt;UI &#8212; tabs &amp; charts (Chart.js)&lt;/b&gt;&#xa;&#xa;&#8226; Force Magnitudes &#8212; &#8214;F&#8214; per sensor&#xa;&#8226; Components &#8212; X / Y / Z per sensor&#xa;&#8226; Jump Test &#8212; mass, angle, run, result&#xa;&#8226; Recordings &#8212; list, view, A/B compare, CSV&#xa;&#8226; Toolbar &#8212; connect, record, calibrate,&#xa;&#160;&#160; Zero Sensors, world&#8209;frame lock" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;align=left;spacingLeft=12;verticalAlign=top;spacingTop=6;" vertex="1" parent="bandD">
+          <mxGeometry x="1460" y="320" width="360" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="d12" value="&lt;b&gt;REST clients&lt;/b&gt;&#xa;jumpApi &#183; recordingApi &#183; calibrationProfiles&#xa;&lt;i&gt;always POST sensor&#8209;frame values&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="bandD">
+          <mxGeometry x="1460" y="590" width="360" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="dnote" value="&lt;b&gt;The one invariant:&lt;/b&gt; everything is stored in the &lt;b&gt;sensor (board) frame&lt;/b&gt; &#8212; the live buffer, IndexedDB and the backend CSV alike. Never rotate on ingestion. If you find yourself applying &#952; in serialParser.ts, useSensorData.ts, or before a POST, that is the bug, not the fix." style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontColor=#3d5a80;" vertex="1" parent="bandD">
+          <mxGeometry x="60" y="730" width="1760" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ============ EDGES : A -> B ============ -->
+        <mxCell id="e_lh" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d79b00;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="lh" target="brlh">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_rh" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d79b00;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="rh" target="brrh">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_lf" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d79b00;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="lf" target="brlf">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_rf" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d79b00;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="rf" target="brrf">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- ============ EDGES : B -> HUB ============ -->
+        <mxCell id="e_h1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d79b00;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.1;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="brlh" target="hub">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="310" y="640" />
+              <mxPoint x="838" y="640" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_h2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d79b00;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.37;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="brrh" target="hub">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="770" y="620" />
+              <mxPoint x="941" y="620" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_h3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d79b00;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.63;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="brlf" target="hub">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1230" y="620" />
+              <mxPoint x="1039" y="620" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_h4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d79b00;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.9;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="brrf" target="hub">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1690" y="640" />
+              <mxPoint x="1142" y="640" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ============ EDGE : HUB -> BACKEND ============ -->
+        <mxCell id="e_usb" value="USB &#183; Phidget22 library" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d79b00;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="hub" target="stream">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ============ EDGES : INSIDE BACKEND ============ -->
+        <mxCell id="e_imp" value="imports streamer" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#82b366;strokeWidth=2;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="stream" target="appy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_disk" value="read / write" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#82b366;strokeWidth=2;startArrow=classic;startFill=1;exitX=1;exitY=0.6;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="appy" target="disk">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ============ EDGE : BACKEND -> FRONTEND (the stream) ============ -->
+        <mxCell id="e_ws" value="&lt;b&gt;WebSocket /api/stream&lt;/b&gt; &#8212; 100 Hz, one CSV line of 12 &lt;b&gt;raw voltage ratios&lt;/b&gt; (~1e&#8209;6) per sample&#xa;&lt;i&gt;proxied by Vite: 5173 &#8594; 5001&lt;/i&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6c8ebf;strokeWidth=3;exitX=0.41;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=12;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="stream" target="d1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" x="170" y="0" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ============ EDGES : INSIDE FRONTEND ============ -->
+        <mxCell id="e_d12" value="every line" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6c8ebf;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="d1" target="d2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_d23" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6c8ebf;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.9;entryDx=0;entryDy=0;" edge="1" parent="1" source="d2" target="d3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_d34" value="&lt;b&gt;values&lt;/b&gt; &#8212; 12 Newtons&#xa;sensor frame" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6c8ebf;strokeWidth=3;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="d3" target="d4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_d35" value="&lt;b&gt;signedRaw&lt;/b&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9673a6;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="d3" target="d5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_d53" value="read at call time&#xa;(steps 3&#8211;5)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9673a6;strokeWidth=2;dashed=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.2;entryDx=0;entryDy=0;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="d5" target="d3">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="490" y="1695" />
+              <mxPoint x="490" y="1330" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_d411" value="autosave&#xa;every 5 s" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#666666;strokeWidth=2;startArrow=classic;startFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="d4" target="d11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_d410" value="display slice, 20 fps" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6c8ebf;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="d4" target="d10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_d109" value="sensor &lt;i&gt;or&lt;/i&gt; world view" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6c8ebf;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="d10" target="d9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_d912" value="user actions" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6c8ebf;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="d9" target="d12">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ============ EDGE : FRONTEND -> BACKEND (REST return path) ============ -->
+        <mxCell id="e_rest" value="&lt;b&gt;REST (Vite proxy &#8594; :5001)&lt;/b&gt;&#xa;POST /api/jump &#183; POST /api/recordings/save&#xa;GET/POST /api/calibration + profiles" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#82b366;strokeWidth=3;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.88;entryDx=0;entryDy=0;fontSize=12;labelBackgroundColor=#ffffff;verticalAlign=middle;" edge="1" parent="1" source="d12" target="appy">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1900" y="1865" />
+              <mxPoint x="1900" y="1060" />
+            </Array>
+            <mxPoint as="offset" x="-340" y="-43" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ============ LEGEND ============ -->
+        <mxCell id="legend" value="Legend" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;verticalAlign=top;fontStyle=1;fontSize=14;align=left;spacingLeft=10;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="40" y="2070" width="560" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="lg1" value="" style="rounded=0;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="legend">
+          <mxGeometry x="14" y="34" width="34" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="lg1t" value="Hardware &#8212; load cells, bridges, USB" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;" vertex="1" parent="legend">
+          <mxGeometry x="58" y="32" width="480" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg2" value="" style="rounded=0;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="legend">
+          <mxGeometry x="14" y="58" width="34" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="lg2t" value="Backend &#8212; Python / Flask" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;" vertex="1" parent="legend">
+          <mxGeometry x="58" y="56" width="480" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg3" value="" style="rounded=0;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="legend">
+          <mxGeometry x="14" y="82" width="34" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="lg3t" value="Frontend &#8212; React / TypeScript" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;" vertex="1" parent="legend">
+          <mxGeometry x="58" y="80" width="480" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg4" value="" style="rounded=0;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="legend">
+          <mxGeometry x="14" y="106" width="34" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="lg4t" value="Calibration &amp; tare state (feeds the parser back)" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;" vertex="1" parent="legend">
+          <mxGeometry x="58" y="104" width="480" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg5" value="" style="rounded=0;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="legend">
+          <mxGeometry x="14" y="130" width="34" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="lg5t" value="Persistent storage &#8212; disk / IndexedDB" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;" vertex="1" parent="legend">
+          <mxGeometry x="58" y="128" width="480" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="readme" value="&lt;b&gt;Reading this diagram:&lt;/b&gt; follow the thick arrows top&#8209;to&#8209;bottom &#8212; that is one force sample's journey. The thick green arrow on the right is the only path back to the backend.&#xa;&lt;b&gt;Two numbers to remember:&lt;/b&gt; 100 Hz (sample rate, set by dataIntervalMs) and 12 channels (4 boards &#215; 3 axes, flat index = board&#215;3 + axis).&#xa;&lt;b&gt;Where things get calibrated:&lt;/b&gt; the wire carries raw voltage ratios; Newtons only exist after step 5 of parseSerialLine, in the browser." style="text;html=1;align=left;verticalAlign=top;fontSize=13;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="640" y="2080" width="1300" height="90" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

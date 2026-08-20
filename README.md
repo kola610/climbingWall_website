@@ -91,6 +91,7 @@ servers must be running for calibration, recordings, and the jump test to work.
 ```
 ClimbingWall_webPage/
 ├── CLAUDE.md                 ← start here if you're an AI agent
+├── docs/AGENTS_HANDOVER.md   ← where the work currently stands
 ├── ARCHITECTURE.md           ← every file + what each function does
 ├── measuring_pipeline.md     ← raw reading → Newtons → storage → jump height
 ├── calibration_pipeline.md   ← the calibration wizard and its math
@@ -99,10 +100,11 @@ ClimbingWall_webPage/
 │   ├── phidget_stream.py        Reads the 4 boards, broadcasts over WebSocket
 │   ├── board_diagnostic.py      Standalone: is a bad board calibration or mechanical?
 │   ├── phidget_config.json      Board serials, gain, sample interval
-│   └── saved_recordings/        Recordings (CSV + .meta.json sidecar)
+│   └── saved_recordings/        Recordings (CSV + .meta.json sidecar). Untracked
+│                                except three reference captures.
 ├── climbing_wall_website/    ← React + Vite frontend
 │   └── src/                     See ARCHITECTURE.md
-└── docs/                     ← LaTeX end-user guides (gitignored)
+└── docs/                     ← LaTeX end-user guides + agent handover
 ```
 
 ---
@@ -118,8 +120,11 @@ ClimbingWall_webPage/
 | `GET`/`POST` | `/api/calibration/profiles` | List / create named calibrations |
 | `PUT`/`DELETE` | `/api/calibration/profiles/:name` | Update / delete one |
 | `POST` | `/api/recordings/save` | Save a recording |
-| `GET` | `/api/recordings` | 5 most recent |
-| `GET` | `/api/recordings/:id/data` | Readings for one recording |
+| `GET` | `/api/recordings` | Newest first; `?limit=N` caps it, `limit=0` returns all |
+| `GET` | `/api/recordings/:id/data` | Downsampled readings; `?from=&to=` zooms to a row window |
+| `GET` | `/api/recordings/:id/download` | The stored CSV verbatim, every sample |
+| `PUT` | `/api/recordings/:id` | Rename (changes the label only, id stays put) |
+| `DELETE` | `/api/recordings/:id` | Delete the CSV and its sidecar |
 
 Set `VITE_BACKEND_URL` in `climbing_wall_website/.env` if the backend isn't local.
 

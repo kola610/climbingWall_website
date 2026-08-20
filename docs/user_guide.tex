@@ -1,0 +1,386 @@
+% =====================================================================
+%  Climbing Wall Force-Measurement System
+%  User Guide  --  using the dashboard
+%
+%  Compile with:   latexmk -pdf -synctex=1 user_guide.tex
+%  Screenshots live in ./images/user_guide/
+% =====================================================================
+\documentclass[11pt,a4paper]{article}
+\usepackage{climbingwall}
+\graphicspath{{images/user_guide/}}
+\setdocname{User Guide}
+\renewcommand{\shotplacement}{H}  % pin screenshots in reading order (figure-dense)
+
+\begin{document}
+
+\guidetitle{Using the Climbing Wall Force Dashboard}%
+  {Getting-started guide --- connecting, recording, and reading the data.}
+
+The climbing wall is fitted with four force sensors --- one under each hand hold
+and each foot hold. This web dashboard connects to the sensors, shows the
+forces in real time, and lets you record sessions, run a jump-height test, and
+compare past recordings. This guide shows you how to start the system and how to
+use each feature. It assumes only that you are comfortable opening a terminal and
+a web browser; no specialist knowledge is required.
+
+% =====================================================================
+\section{Starting the system}
+% =====================================================================
+
+The system has three parts that work together: the four \textbf{sensor boards}
+(one per hold, plugged into the laptop over USB), a \textbf{backend} (a small
+Python server that reads the boards, streams their data, stores recordings and does
+the jump calculation) and a \textbf{frontend} (the dashboard you see in the
+browser). Set them up in the order below --- the two software parts each in their
+own terminal window. To explore in \textbf{demo mode} you can leave the sensor
+boards unplugged --- the backend and frontend alone are enough.
+
+\subsection*{1 --- Plug in the sensor boards (live data only)}
+The four sensor boards connect to the laptop through a \textbf{USB hub}: each
+board's USB cable goes into the hub, and the hub plugs into the laptop with a
+single cable. That is all --- there is nothing to log into and nothing to start on
+the sensor side. The backend (next step) reads the boards directly over USB.
+
+\begin{infobox}
+\textbf{First time on a new computer:} the Phidget sensor driver must be set up
+once. On \textbf{macOS}, allow it under \textsf{System Settings $\rightarrow$
+Privacy \& Security} (click \textsf{Allow} next to the Phidgets driver). On
+\textbf{Windows}, install the Phidget22 drivers from
+\texttt{phidgets.com/docs/OS\_-\_Windows}. Without the driver the backend cannot
+open the boards (every channel fails with ``device is in use'').
+\end{infobox}
+
+Boards may be plugged in or re-plugged at any time, before or after the backend is
+started --- they are picked up automatically within a second or two. Only if you
+restart the \emph{backend} itself do you need to re-click \textsf{Connect Device}
+on the website afterwards.
+
+\subsection*{2 --- Start the backend (Python)}
+In a terminal:
+\begin{quote}\ttfamily
+>> cd backend\\
+>> python3 -m venv venv\hfill\textrm{\small(first time only)}\\
+>> source venv/bin/activate\hfill\textrm{\small(Windows: venv\textbackslash Scripts\textbackslash activate)}\\
+>> pip install -r requirements.txt\hfill\textrm{\small(first time only)}\\
+>> python app.py
+\end{quote}
+You should see \texttt{Running on http://127.0.0.1:5001}. Leave this window open.
+There is also a one-step launcher in the \texttt{backend} folder that even does the
+first-time setup for you: \texttt{run\_backend.bat} on Windows (double-click it, or
+run it from a terminal), \texttt{./run\_backend.sh} on macOS/Linux. Use the one that
+matches your computer --- a \texttt{.sh} script will not run on Windows (Windows
+asks ``Open with?'' instead) and a \texttt{.bat} will not run on macOS.
+
+\begin{warnbox}
+\textbf{Run only one backend at a time.} Each sensor board can be opened by exactly
+one program, so a second backend instance --- or the Phidget Control Panel app left
+open --- will fight over the boards and neither will get data.
+\end{warnbox}
+
+\subsection*{3 --- Start the frontend (Node)}
+In a second terminal:
+\begin{quote}\ttfamily
+>> cd climbing\_wall\_website\\
+>> npm install\hfill\textrm{\small(first time only)}\\
+>> npm run dev
+\end{quote}
+This prints a local address such as \texttt{http://localhost:5173}.
+
+\subsection*{4 --- Open the dashboard}
+Open the address printed above in a web browser. Any modern desktop browser works
+(Chrome, Edge, Firefox, Safari) --- the dashboard receives the sensor data from the
+backend, so it no longer needs any special browser feature. Without the sensor
+boards it still runs in \textbf{demo mode} with simulated data --- handy for trying
+things out.
+
+% =====================================================================
+\section{The dashboard at a glance}
+% =====================================================================
+
+When the page loads you see the toolbar across the top, a status bar, and four
+tabs (Figure~\ref{fig:overall_force}): the three described in this guide, plus a
+\textsf{Jump Test (BETA)} tab that is still experimental and not covered here.
+
+\screenshot{overall_force}{0.92}{The dashboard: toolbar (top), status bar, the four
+tabs, and the \emph{Overall Force} chart. Here the system is in demo mode and
+recording.}
+
+\paragraph{The toolbar.} The controls are grouped into three trays that read left
+to right:
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Session} --- \textsf{Connect Device} opens or closes the live
+        sensor stream from the backend (it turns into \textsf{Disconnect} once
+        connected), and
+        \textsf{Start Recording} / \textsf{Stop Recording} begins or pauses
+        collecting data. While paused you also get \textsf{Start New Recording},
+        \textsf{Save} and \textsf{Export Data}.
+  \item \textbf{Sensor calibration} --- \textsf{Zero Sensors} sets the live zero
+        (the ``tare''), \textsf{Calibrate} opens the calibration wizard, and
+        \textsf{Profiles} saves or loads named calibrations. All three are covered
+        in the separate \emph{Calibration Guide}.
+  \item \textbf{View} --- \textsf{Sensor frame / View in world frame} switches the
+        coordinate system used for the charts (Section~\ref{sec:world}), and
+        \textsf{Chart Settings} adjusts how the charts look
+        (Section~\ref{sec:chartsettings}).
+\end{itemize}
+
+\paragraph{The status bar.}
+A coloured dot reports the device: \textcolor{green!55!black}{green} = connected,
+amber = demo mode, red = no device. On the right it shows whether data is currently
+being recorded.
+
+% =====================================================================
+\section{Recording a session}
+% =====================================================================
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item Click \textsf{Connect Device} to open the live sensor stream (skip this to
+        stay in demo mode). If a warning appears saying only some of the 12 sensor
+        channels are attached, check the USB cables of the sensors it names ---
+        missing channels read 0.
+  \item Click \textsf{Start Recording}. Live data begins to flow into the charts
+        and the status bar shows ``Recording data\ldots''.
+  \item Climb, hang, or push on the holds. The charts update in real time.
+  \item Click \textsf{Stop Recording} to pause. Your data is kept.
+  \item Click \textsf{Save} to store the session on the backend (give it a name so
+        you can find it later), or \textsf{Export Data} to download it as a
+        \texttt{.csv} file you can open in Excel.
+  \item Click \textsf{Start New Recording} to clear the buffer and begin a fresh
+        session.
+\end{enumerate}
+
+\begin{infobox}
+The dashboard auto-saves the live buffer to the browser every few seconds, so a
+page reload loses at most a few seconds of data. ``Save'' (to the backend) and
+``Export'' (to a file) are how you keep a session permanently.
+\end{infobox}
+
+% =====================================================================
+\section{The chart tabs}
+% =====================================================================
+
+\subsection{Overall Force}
+The first tab (Figure~\ref{fig:overall_force}) shows the \textbf{total} force on
+each of the four sensors as one line each. ``Total'' means the combined strength of
+the pull regardless of direction (the length of the force vector,
+$\sqrt{X^2+Y^2+Z^2}$). Use it for a quick ``how hard is each limb pulling?''
+overview. Because it ignores direction, this chart looks the same in either
+coordinate frame.
+
+\subsection{Force by Direction}
+The second tab (Figure~\ref{fig:force_by_direction}) breaks each sensor's force
+into its three components --- $X$, $Y$ and $Z$ --- on a separate small chart per
+sensor. This is where you see, for example, how much a hand is pulling
+\emph{down} versus \emph{out of the wall}. The toggle chips above the charts let
+you show or hide individual sensors, and each chart can be expanded.
+
+\screenshot{force_by_direction}{0.85}{\emph{Force by Direction}: each sensor's $X$
+(purple), $Y$ (slate) and $Z$ (gold) components over time.}
+
+% \subsection{Jump Test (BETA)}
+% The third tab (Figure~\ref{fig:jump_test}) estimates how high a climber jumped off
+% the wall from the force data. The workflow is deliberately simple:
+% \begin{enumerate}[leftmargin=1.6em]
+%   \item \textbf{Step 1 --- parameters.} Enter the climber's body weight (kg) and
+%         the wall angle (degrees), clicking \textsf{Set} after each.
+%   \item \textbf{Step 2 --- run.} Click \textsf{Start Jump Test}, perform the jump,
+%         then click \textsf{Record Result}.
+% \end{enumerate}
+% The result appears as a large number in centimetres. If a body weight was given, a
+% \emph{mass-independent score} ($\text{height}/\sqrt[3]{\text{mass}}$) is also shown,
+% which makes it fairer to compare climbers of different sizes.
+
+% \screenshot{jump_test}{1.0}{The \emph{Jump Test} tab: enter the parameters, run the
+% test, and read the jump height.}
+
+% \begin{infobox}
+% Behind the scenes the backend takes the force on the hands and feet during the
+% jump, removes the climber's body weight, and integrates the leftover acceleration
+% twice (acceleration $\rightarrow$ velocity $\rightarrow$ height) to find the peak.
+% You do not need to do any of this --- just enter the weight and angle and press the
+% buttons.
+% \end{infobox}
+
+\subsection{Recordings}
+The \emph{Recordings} tab (Figure~\ref{fig:recordings}) lists your \textbf{five
+most recent} saved sessions --- older ones are not shown, but they are not lost
+either: every save stays on disk in the backend's \texttt{saved\_recordings}
+folder. Click a recording to plot it: you get its \emph{Overall Force} chart and
+the per-sensor \emph{Force by Direction} charts. From here you can:
+\begin{itemize}[leftmargin=1.4em]
+  \item toggle each recording between \textbf{Sensor} and \textbf{World} view (the
+        world angle is taken automatically from the tilt stored with the
+        recording);
+  \item \textsf{Export CSV} to download the session;
+  \item \textsf{Compare} two recordings side by side (available once you have at
+        least two saved).
+\end{itemize}
+
+\screenshot{recordings}{0.8}{The \emph{Recordings} tab showing a saved climbing
+session. The clear spike is a hard pull on one hold.}
+
+% =====================================================================
+\section{Sensor frame vs.\ world frame}
+\label{sec:world}
+% =====================================================================
+
+The sensors are bolted to the (tilted) wall, so by default they report forces in
+the \textbf{sensor frame}: $X$ runs \emph{along} the wall surface and $Z$ runs
+\emph{perpendicular} to it. Often you would rather think in real-world terms ---
+straight up versus straight out. The \textbf{world frame} rotates the $X$ and $Z$
+components by the wall's tilt angle $\theta$ so that:
+\[
+  X \rightarrow \text{true vertical}, \qquad Z \rightarrow \text{true horizontal
+  (out of the wall)}, \qquad Y \rightarrow \text{unchanged}.
+\]
+
+Geometrically the two frames share a single origin and differ only by the tilt:
+the world frame is the sensor frame rotated by $\theta$ (Figure~\ref{fig:frames}).
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=1.05,>=latex,line join=round,
+    worldax/.style={->,very thick,accent},
+    sensorax/.style={->,very thick,orange!85!black}]
+  \def\th{26}
+  \coordinate (O) at (0,0);
+
+  % the tilted climbing wall, a soft slab along the sensor-X (up-slope) line
+  \draw[line width=8pt,line cap=round,gray!22]
+       ($(O)+({1.0*sin(\th)},{-1.0*cos(\th)})$) --
+       ($(O)+({-3.0*sin(\th)},{3.0*cos(\th)})$);
+  \node[gray!55!black,font=\footnotesize,below right=0pt]
+       at ($(O)+({1.0*sin(\th)},{-1.0*cos(\th)})$) {wall surface};
+
+  % a climber on the wall -- fixes which surface "the wall" (sensor X) is
+  \begin{scope}[shift={({-2.05*sin(\th)},{2.05*cos(\th)})},rotate=\th,
+                scale=0.45,ink,line width=1pt,line cap=round]
+    \draw (0,0) -- (0,0.92);                      % spine
+    \draw[fill=ink] (0,1.12) circle (0.18);       % head
+    \draw (0,0.86) -- (-0.58,1.55);               % left arm reaching to a hold
+    \draw (0,0.86) -- (0.52,1.60);                % right arm reaching to a hold
+    \draw (0,0) -- (-0.50,-0.78);                 % left leg
+    \draw (0,0) -- (0.42,-0.46) -- (0.24,-0.90);  % right leg (bent)
+    \fill[gray!55!black] (-0.58,1.55) circle (0.07);  % hold at left hand
+    \fill[gray!55!black] (0.52,1.60) circle (0.07);   % hold at right hand
+  \end{scope}
+
+  % angle between each world axis and its tilted sensor counterpart
+  \draw[gray!60] (0,0.9) arc (90:{90+\th}:0.9);
+  \node[gray!45!black,font=\footnotesize]
+       at ({1.1*cos(90+\th/2)},{1.1*sin(90+\th/2)}) {$\theta$};
+  \draw[gray!60] (0.9,0) arc (0:\th:0.9);
+  \node[gray!45!black,font=\footnotesize]
+       at ({1.1*cos(\th/2)},{1.1*sin(\th/2)}) {$\theta$};
+
+  % world frame: true vertical + true horizontal
+  \draw[worldax] (O) -- (0,2.15) node[accent,above] {$X$};
+  \draw[worldax] (O) -- (2.15,0) node[accent,right] {$Z$};
+
+  % sensor frame: along the wall (toward the climber) + perpendicular to the wall
+  \draw[sensorax] (O) -- ({-1.45*sin(\th)},{1.45*cos(\th)})
+       node[orange!80!black,left] {$X$};
+  \draw[sensorax] (O) -- ({1.45*cos(\th)},{1.45*sin(\th)})
+       node[orange!80!black,above right] {$Z$};
+  \fill (O) circle (1.5pt);
+\end{tikzpicture}
+\caption{Sensor frame vs.\ world frame, seen side-on, with a climber on the wall to
+fix the geometry. The \textcolor{orange!80!black}{sensor frame} is bolted to the
+board, so its $X$ runs \emph{along the wall surface} the climber is on and its $Z$
+points straight out of it. The \textcolor{accent}{world frame} instead has $X$ truly
+vertical and $Z$ truly horizontal --- it is just the sensor frame rotated by the
+wall tilt~$\theta$. The $Y$ (sideways) axis points out of the page and is the same in
+both frames.}
+\label{fig:frames}
+\end{figure}
+
+To switch the live view, click \textsf{View in world frame\ldots}, type the
+\emph{current} wall tilt, and confirm (Figure~\ref{fig:world_frame}). The view
+locks at that angle and can be unlocked at any time. The tilt you type here is a
+\textbf{display-only} angle, separate from the calibration angle $\theta$ set in
+the calibration wizard: it is merely pre-filled from it, and changing it never
+touches the calibration.
+
+\screenshot{world_frame}{0.72}{Opting into the world-frame view: enter and confirm
+the current wall tilt $\theta$.}
+
+\begin{infobox}
+The world frame only changes \emph{what the charts show}. The stored data always
+stays in the raw sensor frame, so switching back and forth never alters or damages
+a recording. The \emph{Overall Force} chart is unaffected because total force does
+not depend on direction.
+\end{infobox}
+
+% =====================================================================
+\section{Chart settings}
+\label{sec:chartsettings}
+% =====================================================================
+
+The \textsf{Chart Settings} button opens a small panel
+(Figure~\ref{fig:chart_settings}) with three controls:
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Time window shown} --- how much recent history to display
+        (e.g.\ the last 5 seconds, or everything).
+  \item \textbf{Force range (chart top)} --- the maximum value on the vertical
+        axis, so you can zoom in or out on the force scale.
+  \item \textbf{Auto-adjust scale to data} --- let the chart pick the vertical
+        range automatically.
+\end{itemize}
+
+\screenshot{chart_settings}{0.78}{\emph{Chart Settings}: time window, force range and
+auto-scaling.}
+
+% =====================================================================
+\section{Calibration and zeroing}
+% =====================================================================
+
+Before the forces shown are accurate in newtons, each board must be
+\textbf{calibrated} against known weights --- a one-time procedure done from the
+\textsf{Calibrate} button. Separately, you \textbf{zero} the sensors at the start of
+each session with the \textsf{Zero Sensors} button, which re-sets the baseline so an
+unloaded hold reads zero. Calibration is rare and saved; zeroing is quick, live, and
+done often. Both are important enough to have their own document --- please see the
+separate \textbf{Calibration Guide} for the full walkthrough (including saved
+\textsf{Profiles}) and the reasoning behind it.
+
+% =====================================================================
+\section{Troubleshooting}
+% =====================================================================
+
+\begin{center}
+\begin{tabular}{@{}p{0.42\linewidth}p{0.52\linewidth}@{}}
+\toprule
+\textbf{Problem} & \textbf{Fix} \\
+\midrule
+\textsf{Connect Device} fails or falls straight into demo mode &
+Make sure the backend is running (\texttt{python app.py} in the \texttt{backend}
+terminal) --- the live stream comes through it. \\[4pt]
+A warning says only some of the 12 sensor channels are attached &
+One or more boards are unplugged. Check the USB cables into the hub for the
+sensors named in the warning --- re-plugged boards are picked up automatically
+within a second or two. \\[4pt]
+Boards are plugged in but no channels attach &
+Allow the Phidgets driver once (macOS: \textsf{System Settings $\rightarrow$
+Privacy \& Security}) and restart the backend. Also close the Phidget Control
+Panel and any second backend instance --- each board can only be opened by one
+program at a time. \\[4pt]
+``No backend'' / recordings will not save &
+Make sure \texttt{python app.py} is still running in the \texttt{backend} terminal. \\[4pt]
+\texttt{node} or \texttt{python3} ``command not found'' &
+Install Node.js (LTS) from nodejs.org or Python from python.org. \\[4pt]
+The charts are empty &
+Press \textsf{Start Recording}. With no device connected the system shows demo
+data so you can still explore. \\[4pt]
+Forces look shifted, or too large or too small &
+First \textsf{Zero Sensors} with nothing on the holds. If they are still off, the
+sensors probably need calibrating --- see the Calibration Guide. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vfill
+\begin{center}\small\itshape\color{muted}
+Screenshots were taken from the dashboard running in demo mode with simulated data.
+\end{center}
+
+\end{document}

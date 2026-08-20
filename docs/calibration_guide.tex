@@ -1,0 +1,542 @@
+% =====================================================================
+%  Climbing Wall Force-Measurement System
+%  Calibration Guide
+%
+%  Compile with:   latexmk -pdf -synctex=1 calibration_guide.tex
+%  Screenshots live in ./images/calibration_guide/
+% =====================================================================
+\documentclass[11pt,a4paper]{article}
+\usepackage{climbingwall}
+\graphicspath{{images/calibration_guide/}}
+\setdocname{Calibration Guide}
+\renewcommand{\shotplacement}{H}  % pin the walkthrough screenshots to their steps
+
+\begin{document}
+
+\guidetitle{Calibrating the Force-Measurement System}%
+  {Step-by-step guide --- how and why the sensors are calibrated.}
+
+% =====================================================================
+\section{Why do we calibrate?}
+% =====================================================================
+
+\subsection{What the sensors actually measure}
+Each of the four boards contains a \textbf{three-axis load cell}: a small device
+that produces a tiny electrical signal when it is pushed or pulled. The boards are
+plugged into the computer over USB, and the backend reads all four about 100 times
+per second, delivering twelve numbers per reading to the dashboard (four boards
+$\times$ three directions, $X$, $Y$ and $Z$).
+The catch is that these raw numbers are \textbf{voltage ratios}, not forces. They
+are extremely small (around $10^{-6}$) and every individual sensor is slightly
+different. A reading of, say, $0.000012$ from one board does not directly tell you
+how many newtons are pressing on it. We need a rule that converts the raw number
+into a force. \textbf{Finding that rule, for each sensor, is what calibration
+does.}
+
+\subsection{The conversion rule}
+For every sensor channel we assume a simple \emph{straight-line} relationship
+between the raw reading and the true force:
+\begin{equation}
+  \text{force (N)} \;=\; \bigl(\text{raw reading} - \text{offset}\bigr)\times\text{scale}.
+  \label{eq:line}
+\end{equation}
+Two unknowns appear here, and they behave \emph{very differently} --- which is why
+the system handles them in two separate ways:
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{scale} --- how many newtons correspond to one unit of raw signal
+        (the steepness, or slope, of the line). This is a \emph{fixed physical
+        property} of the sensor; it barely changes over time. You measure it
+        \textbf{once}, with known weights, and it is \textbf{saved}. Finding the
+        scale is what \textbf{calibration} means in this guide.
+  \item \textbf{offset} --- the raw number the sensor reports when \emph{nothing} is
+        loaded (its ``zero point''). This one \emph{drifts} --- with temperature, as
+        the rig settles, whenever the hardware is re-seated --- so a value measured
+        today is wrong tomorrow. Rather than save it, you re-set it \textbf{live, on
+        demand}, with the \textsf{Zero Sensors} button (a ``tare''). The offset is
+        \textbf{never saved} as part of the calibration.
+\end{itemize}
+In short: the \textbf{scale} is stable, so it is calibrated and stored; the
+\textbf{zero} drifts, so it is tared fresh whenever you need it
+(Section~\ref{sec:zeroing}).
+
+\subsection{Three things, kept separately}
+\label{sec:layers}
+This split into a stable, saved \emph{scale} and a live, unsaved \emph{zero} is the
+one idea to hold on to. In full, the system keeps \textbf{three} things apart, each
+in its own place --- and only the first two are ever saved:
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{What} & \textbf{What it is} & \textbf{Saved?} \\
+\midrule
+Active calibration & axis switches $+$ per-channel \emph{scales} & yes (durable) \\
+Calibration profiles & a named library of saved calibrations & yes (durable) \\
+Zero (tare) & the live per-channel zero point & no (live only) \\
+\bottomrule
+\end{tabular}
+\end{center}
+The \textbf{active calibration} is the scale set currently in force --- what you
+produce in the wizard. A \textbf{profile} is a named snapshot of an active
+calibration you can save and reload (Section~\ref{sec:profiles}), handy when you
+swap between walls or sensor sets. The \textbf{zero} is the live tare
+(Section~\ref{sec:zeroing}): cached in your browser, but never sent to the backend
+and never part of a calibration or a profile.
+
+\subsection{Why known weights --- and why three of them?}
+We create known forces by hanging known masses. A mass $m$ produces a downward
+gravitational force
+\begin{equation}
+  F = m\,g, \qquad g = 9.80665~\mathrm{m/s^2},
+\end{equation}
+so $10~\mathrm{kg}$ gives about $98~\mathrm{N}$ and $20~\mathrm{kg}$ about
+$196~\mathrm{N}$. By recording the raw sensor value at several known weights we can
+work out the two unknowns in Equation~\eqref{eq:line}.
+
+The standard procedure uses \textbf{three weights: $0$, $10$ and $20$~kg} (you can
+change these values in the app). Why three?
+\begin{itemize}[leftmargin=1.4em]
+  \item The \textbf{$0$~kg} measurement gives the fit its \textbf{zero reference}
+        --- the reading with no load --- so the slope is measured from the right
+        baseline. (This reference is used only to work out the scale; it is
+        \emph{not} saved as the sensor's zero. Setting the live zero is a separate,
+        on-demand step --- Section~\ref{sec:zeroing}.)
+  \item A \textbf{single loaded weight} would already be enough to estimate the
+        \textbf{scale} (slope) --- geometrically, two points define a straight
+        line.
+  \item The \textbf{third weight} is what makes the result trustworthy. With three
+        points we can \emph{check} that the sensor really behaves like a straight
+        line, and we can \emph{average out} measurement noise instead of trusting
+        a single reading. More points $\Rightarrow$ a more reliable slope.
+\end{itemize}
+In short: one point anchors the baseline, the others fix and verify the slope ---
+and the slope is the only thing calibration keeps.
+
+\subsection{The method: a best-fit straight line}
+We do not just connect dots --- we fit the \textbf{best straight line} through the
+measured points using the method of \emph{least squares} (the line that sits as
+close as possible to all points at once). Because we already know the zero point
+from the $0$~kg reading, the line is forced through the origin once the offset is
+subtracted. The slope of that line is the \textbf{scale}:
+\begin{equation}
+  \text{scale} \;=\; \frac{\sum_k x_k\,F_k}{\sum_k x_k^{2}},
+  \qquad x_k = (\text{raw}_k - \text{offset}),
+  \label{eq:slope}
+\end{equation}
+where $F_k$ is the known force at step $k$ and $x_k$ is the offset-corrected raw
+reading. This is exactly the formula the app uses internally; you never compute it
+by hand --- the wizard does it the moment you finish capturing the weights.
+
+This slope is not arbitrary: it is the one that makes the line fit the points as
+well as possible. We choose \textbf{scale} to minimise the total squared error
+between the known forces and the line's predictions,
+\begin{equation}
+  S(\text{scale}) \;=\; \sum_k \bigl(F_k - \text{scale}\cdot x_k\bigr)^2 .
+  \label{eq:lsq}
+\end{equation}
+Setting the derivative to zero, $\frac{\mathrm{d}S}{\mathrm{d}(\text{scale})}
+= -2\sum_k x_k\bigl(F_k - \text{scale}\,x_k\bigr) = 0$, and solving for
+\textbf{scale} gives Equation~\eqref{eq:slope}. Since $S$ is an upward-opening
+parabola in \textbf{scale} (its second derivative $2\sum_k x_k^{2}$ is positive),
+this critical point is the unique minimum --- the best-fit slope.
+
+\begin{infobox}
+\textbf{In one sentence:} calibration applies known weights to each sensor, fits a
+straight line through the raw readings, and stores the line's \textbf{slope}
+(\emph{scale}) so that every future reading can be turned into newtons. The line's
+zero point is \emph{not} saved --- you set it live with \textsf{Zero Sensors}
+(Section~\ref{sec:zeroing}).
+\end{infobox}
+
+% =====================================================================
+\section{The wall is tilted --- and why that helps}
+% =====================================================================
+
+The climbing wall does not stand vertically; it \textbf{leans back} by an angle we
+call $\theta$ (theta). This tilt is not a nuisance --- it is the key to a clever
+shortcut.
+
+Each board measures force along two perpendicular directions that matter here:
+\begin{itemize}[leftmargin=1.4em]
+  \item $X$ --- \emph{along the wall surface} (the ``in-plane'' or up-slope
+        direction),
+  \item $Z$ --- \emph{perpendicular to the wall surface} (the ``normal'' or
+        out-of-wall direction),
+  \item $Y$ --- sideways (left/right), handled separately.
+\end{itemize}
+
+When you hang a weight straight down on a wall that is tilted by $\theta$, gravity
+no longer points purely along one axis. Instead the single vertical force $W=mg$
+splits into two parts (Figure~\ref{fig:tilt}):
+\begin{equation}
+  \underbrace{W\cos\theta}_{\text{along the wall }(X)} \qquad\text{and}\qquad
+  \underbrace{W\sin\theta}_{\text{out of the wall }(Z)} .
+\end{equation}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=1.0,>=latex]
+  \def\th{24}
+  % define the geometry first
+  \coordinate (O) at (0,0);
+  \coordinate (A) at (0,4);
+  \coordinate (B) at ({4*sin(\th)},{4*cos(\th)});
+  % a point on the wall where the weight hangs
+  \coordinate (P) at ({2.2*sin(\th)},{2.2*cos(\th)});
+  % vertical reference
+  \draw[gray,dashed] (O) -- (A) node[above]{\small vertical};
+  % wall, tilted by theta from vertical
+  \draw[very thick,brown!70!black] (O) -- (B)
+        node[above right]{\small wall surface};
+  % angle theta between vertical and wall (small wedge, not the reflex angle)
+  \draw pic["$\theta$",draw=black,angle radius=0.9cm,angle eccentricity=1.45]
+        {angle=B--O--A};
+  \fill (P) circle (1.6pt);
+  % weight pulling straight down
+  \draw[->,very thick,blue!70!black] (P) -- ($(P)+(0,-1.6)$)
+        node[below]{\small $W=mg$};
+  % along-wall component (down-slope) at P
+  \draw[->,thick,red!70!black] (P) -- ($(P)+({-1.25*sin(\th)},{-1.25*cos(\th)})$)
+        node[below left]{\small $W\cos\theta\ (X)$};
+  % normal component (into/out of wall) at P
+  \draw[->,thick,green!45!black] (P) -- ($(P)+({-1.0*cos(\th)},{1.0*sin(\th)})$)
+        node[left]{\small $W\sin\theta\ (Z)$};
+\end{tikzpicture}
+\caption{On a wall tilted by $\theta$ from vertical, one hanging weight $W$ loads
+both the along-wall axis ($X$, by $W\cos\theta$) and the out-of-wall axis ($Z$, by
+$W\sin\theta$) at the same time.}
+\label{fig:tilt}
+\end{figure}
+
+This is the so-called \textbf{single-hang method}: because the tilt automatically
+spreads the load across both the $X$ and $Z$ axes, \textbf{one set of hangs
+calibrates two axes at once}. You only have to tell the app the wall's tilt angle
+$\theta$ so it knows how the weight was divided. (The third axis, $Y$ /
+sideways, is calibrated with a separate left/right pull.)
+
+\begin{warnbox}
+\textbf{The angle $\theta$ must match the real wall.} $\theta$ is used only to
+split a hang into its $X$ and $Z$ parts. If you type the wrong angle, the split is
+wrong and the calibration comes out wrong. Measure the wall's lean-back before you
+start (a phone inclinometer app is fine). At $\theta\approx 0^\circ$ a hang puts no
+load on $Z$ at all, so the wall \emph{must} be tilted for this method to work.
+\end{warnbox}
+
+\subsection{The coordinate convention}
+Throughout the system the directions are fixed as:
+\begin{center}
+\begin{tabular}{@{}cl@{}}
+\toprule
+\textbf{Axis} & \textbf{Positive direction} \\
+\midrule
+$+X$ & up (toward the top of the wall) \\
+$+Y$ & to the right \\
+$+Z$ & out of the wall (toward the climber) \\
+\bottomrule
+\end{tabular}
+\end{center}
+A climber simply hanging from a hold therefore registers a \emph{negative} $X$
+(they pull down-slope), and a pull away from the wall registers a \emph{positive}
+$Z$.
+
+% =====================================================================
+\section{Before you begin}
+% =====================================================================
+
+You will need:
+\begin{itemize}[leftmargin=1.4em]
+  \item the backend running and the dashboard open in a browser (see the
+        \emph{User Guide} for how to start them);
+  \item the four sensor boards \textbf{plugged in} (via the USB hub) and the
+        dashboard \textbf{connected} (click \textsf{Connect Device} in the
+        toolbar) --- calibration reads live data, so without a connection every
+        capture will time out;
+  \item \textbf{known weights}, e.g.\ $10~\mathrm{kg}$ and $20~\mathrm{kg}$ plates,
+        plus the ability to hang/pull them cleanly on each board;
+  \item the wall's \textbf{tilt angle $\theta$}, measured in degrees from vertical.
+\end{itemize}
+
+\begin{infobox}
+You calibrate \textbf{four boards}, and for each board you calibrate the
+\textbf{hang ($X$ \& $Z$)} and the \textbf{$Y$ (sideways)} direction. That is the
+full procedure, and it sets the \textbf{scales} only. Axes you skip keep rough
+factory-default values and may report inaccurate forces. Zeroing (the tare) is a
+separate one-click step done from the main toolbar and needs no weights ---
+Section~\ref{sec:zeroing}.
+\end{infobox}
+
+\newpage
+
+% =====================================================================
+\section{Walkthrough: calibrating step by step}
+% =====================================================================
+
+Open the wizard by clicking \textsf{Calibrate} in the toolbar's
+\emph{sensor-calibration} tray (alongside \textsf{Zero Sensors} and
+\textsf{Profiles}). The wizard sets the \textbf{scales}, and walks you through five
+stages:
+\[
+\text{Overview}\;\rightarrow\;\text{Set angle }\theta\;\rightarrow\;
+\text{Pick a board}\;\rightarrow\;\text{Pick what to calibrate}\;\rightarrow\;
+\text{Capture \& save}.
+\]
+
+\subsection{Stage 1 --- Overview}
+The first screen (Figure~\ref{fig:calib_confirm}) summarises the procedure and
+reminds you that hanging one weight calibrates both $X$ and $Z$. If you see an
+amber ``No device connected'' banner, plug in and connect the device first. Click
+\textsf{Start Calibration} to continue.
+
+\screenshot{calib_confirm}{0.82}{Stage 1 --- the overview screen explains the
+procedure before you begin.}
+
+\subsection{Stage 2 --- Set the wall angle $\theta$}
+Enter the wall's true lean-back from vertical (Figure~\ref{fig:calib_angle}). This
+is the \emph{only} place the calibration angle can be set, on purpose: it keeps the
+saved $X/Z$ calibration and the angle from ever drifting apart. The default is
+$16^\circ$. Type your measured value and click \textsf{Next --- pick a board}.
+The dashboard's \textsf{View in world frame} dialog asks for a tilt as well, but
+that is a \emph{separate, display-only} angle --- pre-filled from this one and
+never written back to it.
+
+\screenshot{calib_angle}{0.82}{Stage 2 --- enter the measured wall tilt $\theta$.
+It tells the app how a hang divides between the $X$ and $Z$ axes.}
+
+\subsection{Stage 3 --- Pick a board}
+A 2$\times$2 grid represents the wall as you face it: hands on top, feet on the
+bottom (Figure~\ref{fig:calib_boards}). Each board shows three little badges, $X$,
+$Y$ and $Z$. A \textbf{green check} means that axis is already calibrated; a plain
+letter means it still uses factory defaults. Click the board you want to work on.
+
+\screenshot{calib_boards}{0.82}{Stage 3 --- choose a board. Green checks mark axes
+that are already calibrated.}
+
+\subsection{Stage 4 --- Pick what to calibrate}
+Now choose \emph{what} to calibrate on this board
+(Figure~\ref{fig:calib_mode}):
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Hang $\rightarrow X$ \& $Z$} --- the single-hang method. You hang
+        weights straight down and the app calibrates both the along-wall ($X$) and
+        out-of-wall ($Z$) axes together. (Disabled if $\theta\approx 0$.)
+  \item \textbf{$Y$ --- sideways} --- you pull the weight left or right to
+        calibrate the sideways axis. The app knows that left-side boards are pulled
+        left and flips the sign automatically.
+\end{itemize}
+
+\screenshot{calib_mode}{0.82}{Stage 4 --- calibrate the hang ($X$ \& $Z$) or the
+sideways ($Y$) direction for the selected board.}
+
+\subsection{Stage 5 --- Capture the weights and save}
+This is where the measurements happen (Figure~\ref{fig:calib_steps}). You will see
+three rows for $0$, $10$ and $20$~kg (these numbers are editable). For each row:
+\begin{enumerate}[leftmargin=1.6em]
+  \item Apply the stated weight. For a \textbf{hang}, let the weight hang
+        \emph{straight down} and stay still. For \textbf{$Y$}, pull it cleanly to
+        the side.
+  \item Wait for it to stop moving, then click \textsf{Capture}. The app averages
+        about 1.5~seconds of live data ($\sim$150 readings) to get a clean value.
+  \item Repeat for all three weights. The $0$~kg step (nothing applied) gives the
+        fit its zero reference --- it is used to work out the scale, not saved as
+        the sensor's zero.
+\end{enumerate}
+
+A live \textbf{``Steady / Swinging''} indicator tells you whether the weight is
+still moving. If you capture while it swings, the row is flagged ``swung'' --- you
+are never blocked, but a steadier capture is more accurate, so re-capture once it
+settles.
+
+Once all three weights are captured, the app instantly computes and displays the
+resulting \textbf{scale} (for a hang, one for $X$ and one for $Z$) --- no offset is
+shown or stored. Review the green result panel, then click \textsf{Save}. The
+calibration takes effect immediately and is stored permanently (see
+Section~\ref{sec:storage}). You are returned to the board's mode picker so you can
+calibrate its other axis, or go back and pick another board.
+
+\screenshot{calib_steps}{0.86}{Stage 5 --- apply each known weight and click
+\textsf{Capture}. The app fits the line and shows the computed scale before you
+save.}
+
+\subsection{Finishing}
+Click \textsf{Done} when every board and axis is calibrated. If any axis is still
+on factory defaults, the app warns you and lists exactly which ones, so nothing is
+forgotten. There is also an \textsf{Exit \& discard} option that rolls back every
+change you made during the session (including $\theta$), and a \textsf{Reset to
+defaults} button at the bottom that clears \emph{all} calibration.
+
+\begin{infobox}
+Two things worth knowing about the wizard. The \textbf{green ``calibrated'' checks}
+start empty every time you open it and are filled only by saves you make \emph{in
+that session} --- they track this sitting, not your whole history. And the footer's
+\textsf{Save / Load Profile} button opens the profile manager
+(Section~\ref{sec:profiles}) without leaving the wizard.
+\end{infobox}
+
+% =====================================================================
+\section{Zeroing the sensors (tare)}
+\label{sec:zeroing}
+% =====================================================================
+
+Calibration fixes the \emph{scale}; \textbf{zeroing} fixes the \emph{zero point}.
+Because the zero drifts, you re-set it whenever you start measuring --- it takes one
+click, needs no weights, and never touches your calibration.
+
+\screenshot{zero_sensors}{0.8}{The sensor-calibration tray: \textsf{Zero Sensors}
+with its live status chip (\textsf{Zeroed $X$s ago} and a freshness dot), next to
+\textsf{Calibrate} and \textsf{Profiles}.}
+
+\paragraph{How to zero.}
+\begin{enumerate}[leftmargin=1.6em]
+  \item Make sure the holds are \textbf{unloaded} (nothing hanging, nobody on the
+        wall) and the device is connected and streaming.
+  \item Click \textsf{Zero Sensors} in the toolbar's sensor-calibration tray. The
+        app averages about $1.5$~seconds of the most recent readings ($\sim$150
+        samples) and installs that as the new zero \emph{instantly} --- a recording
+        in progress never pauses.
+\end{enumerate}
+
+\paragraph{Reading the status.} Next to the button a small chip reports the state:
+\textsf{Not zeroed yet} before you have zeroed, then \textsf{Zeroed $X$s ago} with a
+coloured dot --- \textcolor{green!55!black}{green} under a minute,
+\textcolor{warn}{amber} under five, red beyond --- so you can tell at a glance
+whether the zero is fresh. The small $\circlearrowleft$ beside it clears the zero
+and returns to raw, un-tared readings.
+
+\begin{infobox}
+The zero is \textbf{cached in your browser}, so it survives a page reload and you do
+not have to re-zero after refreshing. But it is \textbf{never sent to the backend}
+and is \textbf{never part of a calibration or profile}: it is the one value the
+system deliberately keeps live rather than saved.
+\end{infobox}
+
+\begin{warnbox}
+\textbf{Zeroing needs a live device.} The button stays disabled until about
+$20$~samples have streamed in, and \textbf{demo mode does not feed it} (demo data
+bypasses the sensor pipeline, the same limitation as the wizard's live readout).
+Connect a real device to zero.
+\end{warnbox}
+
+\paragraph{When to zero.} At the start of each session, and any time the unloaded
+reading looks off or the staleness dot turns red. You do \emph{not} need to
+recalibrate in order to re-zero --- keeping the two apart is exactly the point.
+
+% =====================================================================
+\section{Calibration profiles}
+\label{sec:profiles}
+% =====================================================================
+
+A \textbf{profile} is a named, saved copy of a full calibration (all the axis
+switches and scales --- never the zero). Profiles let you keep more than one
+calibration on hand: one per wall, one per set of sensors, or a known-good backup
+before you experiment. They live on the backend and survive restarts.
+
+Open the manager from the \textsf{Profiles} button in the toolbar, or from
+\textsf{Save / Load Profile} in the calibration wizard's footer --- both open the
+same \textsf{Calibration Profiles} panel.
+
+\screenshot{calib_profiles}{0.72}{The \textsf{Calibration Profiles} panel: name and
+\textsf{Save as new} at the top, then each saved profile with \textsf{Load},
+duplicate, rename and delete.}
+
+\paragraph{Saving.} Type a name under \textsf{Save current calibration} and click
+\textsf{Save as new} to store whatever calibration is currently active. If a profile
+is already active, an \textsf{Update ``\emph{name}''} button also appears to write
+your latest changes back to it.
+
+\paragraph{Managing.} Each saved profile offers five actions:
+\begin{itemize}[leftmargin=1.4em]
+  \item \textsf{Load} --- apply it as the active calibration (it takes effect and is
+        saved immediately);
+  \item \textbf{Recalibrate} (ruler icon) --- load the profile \emph{and} open the
+        calibration wizard on it in one click. This is the only way to change a
+        profile's values: they are always measured with real weights in the wizard,
+        never typed in by hand;
+  \item \textbf{Duplicate} --- copy it under a new name;
+  \item \textbf{Rename} --- change the name only (the values stay untouched);
+  \item \textbf{Delete} --- guarded by a two-step confirmation.
+\end{itemize}
+The active profile is marked \textsf{Active}, or \textsf{Active \textperiodcentered\
+modified} once you have changed the live calibration without saving it back.
+
+\begin{infobox}
+\textbf{Editing a profile safely.} Click the profile's \textbf{Recalibrate} (ruler)
+button --- it becomes the active calibration and the wizard opens on it. A banner at
+the top of the wizard always tells you \emph{which} calibration you are changing
+(``loaded from profile `\emph{name}'\,'') and warns once your changes differ from the
+saved profile. Recalibrate the boards you want --- each \textsf{Save} updates the
+live calibration --- then click \textsf{Update ``\emph{name}''} to write the changes
+back. \textsf{Duplicate} first if you want to keep the original untouched.
+\end{infobox}
+
+% =====================================================================
+\section{Where it is all stored}
+\label{sec:storage}
+% =====================================================================
+
+The three things from Section~\ref{sec:layers} are kept --- or deliberately not
+kept --- in different places:
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{The active calibration} (axis switches $+$ scales). Pressing
+        \textsf{Save} in the wizard writes it in three places at once: the
+        \textbf{live program} (the next reading is already converted correctly), the
+        browser's \textbf{local storage} (a reload keeps it even with no backend),
+        and a file on the backend, \texttt{calibration\_settings.json} (the
+        authoritative copy, reloaded automatically next time). Only scales and axis
+        switches go here --- \textbf{no zero}.
+  \item \textbf{Profiles} live in \texttt{calibration\_profiles.json} on the
+        backend, so your named library survives restarts.
+  \item \textbf{The zero (tare)} is cached \emph{only} in the browser's local
+        storage. It is never persisted to the backend and never part of a
+        calibration or profile.
+\end{itemize}
+Because the scales are a physical property of the sensors, you normally calibrate
+\textbf{once} per board; you re-zero often, but that costs nothing and saves
+nothing.
+
+\begin{infobox}
+\textbf{Do I need to recalibrate if the wall angle changes?} Generally no. The
+scales are intrinsic to the sensors; $\theta$ only affects how a hang is split at
+calibration time and how forces are \emph{displayed}. Re-running the
+\textbf{Hang $\rightarrow X$ \& $Z$} step after a large angle change is only a
+precaution against real-world cross-axis effects. The $Y$ axis and the overall
+force magnitude are unaffected either way.
+\end{infobox}
+
+% =====================================================================
+\section{Troubleshooting}
+% =====================================================================
+
+\begin{center}
+\begin{tabular}{@{}p{0.42\linewidth}p{0.52\linewidth}@{}}
+\toprule
+\textbf{Symptom} & \textbf{What to do} \\
+\midrule
+``No sensor data received'' when capturing &
+Make sure the backend is running, the sensor boards are plugged in, and the
+dashboard is connected (\textsf{Connect Device}). Captures need live data and time
+out after 8~seconds without it. \\[4pt]
+The \textsf{Zero Sensors} button is greyed out &
+No live data is streaming. Plug in the boards, click \textsf{Connect Device} and
+wait a moment --- zeroing needs about $20$~samples, and demo mode cannot zero. \\[4pt]
+Unloaded readings sit at a non-zero value &
+Re-zero: unload the holds and click \textsf{Zero Sensors}. A red staleness dot means
+the old zero has simply drifted. \\[4pt]
+The \textbf{Hang} option is greyed out &
+The wall angle $\theta$ is set to roughly $0^\circ$. A vertical hang then puts no
+load on $Z$. Go back to Stage~2 and enter the real (non-zero) tilt. \\[4pt]
+A captured row says ``swung $\pm N$'' &
+The weight was still moving. Let it settle and \textsf{Re-capture} for a cleaner
+value. \\[4pt]
+Forces look wrong after calibration &
+First re-zero (unloaded) with \textsf{Zero Sensors}. If they are still off, check
+that $\theta$ matched the real wall and that the weights you entered match the
+plates you used. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vfill
+\begin{center}\small\itshape\color{muted}
+Screenshots were taken from the dashboard running in demo mode; on a connected
+system the ``No device connected'' banner does not appear.
+\end{center}
+
+\end{document}

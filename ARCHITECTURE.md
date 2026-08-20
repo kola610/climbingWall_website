@@ -20,7 +20,9 @@ Conventions used throughout:
 | `calculate_jump_height_with_angle(foot, hand, mass, rate, angle)` | The jump algorithm. Projects wall-frame forces to global vertical, subtracts body weight, double-integrates acceleration → velocity → position, finds takeoff, returns height in metres. |
 | `_safe_filename_part(value)` | Strips a user-supplied name to `[A-Za-z0-9_-]`, max 80 chars. |
 | `_write_meta(csv_path, label, count, duration, decline)` | Writes the `.meta.json` sidecar next to a recording CSV. |
-| `_read_or_generate_meta(csv_path)` | Reads the sidecar; if absent, derives metadata by reading the CSV (for pre-sidecar recordings). |
+| `_read_or_generate_meta(csv_path)` | Reads the sidecar; if absent, derives metadata by reading the CSV (for pre-sidecar recordings) and writes it back, so the listing endpoint doesn't re-parse every CSV on every call. |
+| `_recording_path(recording_id)` | The one place an id becomes a path. Strips everything outside `[A-Za-z0-9_-]`, so no handler can be walked out of `saved_recordings/`. |
+| `_slice_and_downsample(rows, frm, to)` | Cuts to a `[from, to)` **row-position** window (not Sample numbers), then thins to ≤1000 points. Clamps reversed/out-of-range bounds instead of erroring — a range slider drags through those states constantly. |
 | `_calib_config_error(payload)` | Returns an error string if `axisSigns`/`axisScales` aren't both arrays of 12 numbers, else `None`. Used by both the calibration and profile endpoints. |
 | `_read_profiles()` / `_write_profiles(p)` | Load/save `calibration_profiles.json` (a JSON list). |
 
@@ -37,8 +39,10 @@ Conventions used throughout:
 | `POST` | `/api/calibration/profiles` | Create one. `409` if the name exists. |
 | `PUT`/`DELETE` | `/api/calibration/profiles/<name>` | Update (optionally rename) or delete. |
 | `POST` | `/api/recordings/save` | Write a recording CSV + meta sidecar. |
-| `GET` | `/api/recordings` | The 5 most recent, newest first. |
-| `GET` | `/api/recordings/<id>/data` | Readings, evenly downsampled to ≤1000 points. |
+| `GET` | `/api/recordings` | Newest first. `?limit=N` caps the list, `limit=0` returns all. Defaults to 5. |
+| `GET` | `/api/recordings/<id>/data` | Readings, evenly downsampled to ≤1000 points. `?from=&to=` windows first, *then* downsamples — that ordering is what makes zoom add real resolution rather than magnifying the same dots. |
+| `GET` | `/api/recordings/<id>/download` | The stored CSV verbatim, every sample, as an attachment. Deliberately not downsampled: an export is the file that was written at save time. |
+| `PUT`/`DELETE` | `/api/recordings/<id>` | Rename or delete. Rename touches only the sidecar's `label`; the CSV filename and therefore the id stay stable. |
 | `GET` | `/` , `/api/hello` | Health checks. |
 
 > The active calibration is written **into the frontend source tree**
@@ -139,7 +143,7 @@ The recordings tab spreads `BASE_CHART_OPTIONS` but keeps its own scales — it 
 at 0 and lets Chart.js auto-scale the top.
 
 **API clients** — `recordingApi.ts` (`saveRecordingToBackend`, `fetchRecentRecordings`,
-`fetchRecordingData`), `jumpApi.ts` (`computeJumpHeight` — sums the two hands and two
+`fetchRecordingData`, `recordingDownloadUrl`, `deleteRecording`, `renameRecording`), `jumpApi.ts` (`computeJumpHeight` — sums the two hands and two
 feet, then POSTs), `calibrationProfiles.ts` (`fetchProfiles`, `createProfile`,
 `updateProfile`, `deleteProfile`, `configMatchesProfile`).
 
@@ -183,7 +187,8 @@ logic belongs here.**
 | `tabs/ForceMagnitudesTab` | Euclidean norm per sensor, one chart. Rotation-invariant. |
 | `tabs/ComponentsTab` | X/Y/Z per sensor. Shares a ~1000-point budget across visible charts. |
 | `tabs/JumpTestTab` | Weight/angle entry, run controls, result. |
-| `tabs/RecentRecordingsTab` | Recording list, single view, compare toggle, CSV export. |
+| `dashboard/RecordingsBrowserModal` | Browse every recording (not just the recent 5): search, rename, delete, download. |
+| `tabs/RecentRecordingsTab` | Recording list, single view, compare toggle, CSV export, range zoom, and the entry point to the browser modal. |
 | `comparison/ComparisonView` | Overlay and stacked A/B modes; the stacked mode's synced crosshair is a hand-written Chart.js plugin. |
 | `ui/*` | Trimmed shadcn primitives (button, card, alert, tabs, select, slider, popover). Only what is used is exported. |
 

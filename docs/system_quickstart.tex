@@ -1,0 +1,111 @@
+% =====================================================================
+%  Climbing Wall -- System Quick Guide (short form, ~2 pages)
+%  Compile:  latexmk -pdf system_quickstart.tex
+%  Screenshots live in ./images/system_quickstart/
+% =====================================================================
+\documentclass[11pt,a4paper]{article}
+\usepackage{climbingwall}
+\graphicspath{{images/system_quickstart/}}
+\setdocname{System Quick Guide}
+
+\begin{document}
+
+\guidetitle{Running the Climbing Wall System}%
+  {Quick start --- get from a cold setup to live data in a few minutes.}
+
+The system has three parts: the four \textbf{sensor boards} (plugged into the
+laptop over USB), the \textbf{backend} (reads the boards, saves recordings,
+computes jump height) and the \textbf{website} (the dashboard you use). Set them
+up in this order.
+
+% ---------------------------------------------------------------
+\section{Plug in the sensor boards}
+The four sensor boards connect to the laptop through a \textbf{USB hub}: each
+board's USB cable goes into the hub, and the hub plugs into the laptop with a
+single cable. There is nothing to log into and nothing to start on the sensor
+side --- the backend (next step) reads the boards directly. Boards may be plugged
+in before or after the backend starts; they are picked up automatically within a
+second or two.
+
+\begin{infobox}
+\textbf{First time on a new computer:} set up the Phidget driver once ---
+macOS: \textsf{System Settings $\rightarrow$ Privacy \& Security} $\rightarrow$
+\textsf{Allow}; Windows: install the Phidget22 drivers from
+\code{phidgets.com}. Without it the backend cannot open the boards.
+\end{infobox}
+
+% ---------------------------------------------------------------
+\section{Start the backend (laptop)}
+In a terminal:
+\begin{quote}\ttfamily\small
+>> cd backend\\
+>> source venv/bin/activate\hfill\textrm{\footnotesize(Windows: \texttt{venv\textbackslash Scripts\textbackslash activate})}\\
+>> python app.py
+\end{quote}
+It prints \code{Running on http://127.0.0.1:5001}. Leave it open. One-step
+launchers in \code{backend} also handle the first-time setup:
+\code{run\_backend.bat} on Windows, \code{./run\_backend.sh} on macOS/Linux
+(use the one matching your computer --- \code{.sh} does not run on Windows).
+
+\begin{infobox}
+\textbf{Every time you restart the backend} you must afterwards re-click
+\textsf{Connect Device} on the website so the dashboard re-attaches to the fresh
+stream. Run only \emph{one} backend at a time --- each board can be opened by
+exactly one program (this includes the Phidget Control Panel app).
+\end{infobox}
+
+% ---------------------------------------------------------------
+\section{Start the website (laptop)}
+In a second terminal:
+\begin{quote}\ttfamily\small
+>> cd climbing\_wall\_website\\
+>> npm run dev
+\end{quote}
+Open the printed link (e.g.\ \code{http://localhost:5173}) in a web browser ---
+any modern desktop browser works.
+
+% ---------------------------------------------------------------
+\section{Connect and record}
+\begin{enumerate}
+  \item Click \textsf{Connect Device} (top-left). If a warning says only some of
+        the 12 sensor channels are attached, check the USB cables of the sensors
+        it names.
+  \item If the boards have never been calibrated, calibrate them first --- see the
+        \emph{Calibration Quick Guide}.
+  \item With nothing on the holds, click \textsf{Zero Sensors} to reset the baseline.
+        Do this at the start of every session (it is quick and not saved --- see the
+        \emph{Calibration Quick Guide}).
+  \item Click \textsf{Start Recording} to begin plotting and logging forces.
+  \item Climb / hang / push --- watch the charts update live.
+  \item Click \textsf{Stop Recording} to pause, then \textsf{Save} (to the backend)
+        or \textsf{Export Data} (a \code{.csv} you can open in Excel).
+\end{enumerate}
+
+\begin{warnbox}
+\textbf{Start a new recording for each climber.} Use \textsf{Stop} then
+\textsf{Start New Recording} between users --- this clears the log and keeps the
+page from slowing down or crashing on very long sessions.
+\end{warnbox}
+
+% ---------------------------------------------------------------
+\section{The tabs}
+\begin{itemize}
+  \item \textbf{Overall Force} --- total pull on each of the four sensors.
+  \item \textbf{Force by Direction} --- the $X$, $Y$, $Z$ components per sensor.
+        Use \textsf{View in world frame} in the toolbar for tilt-corrected
+        vertical / out-of-wall forces (a display-only angle --- it does not change
+        the calibration).
+  \item \textbf{Recordings} --- open, compare and export the \textbf{five most
+        recent} saved sessions. Older ones stay on disk in the backend's
+        \code{saved\_recordings} folder but are not listed.
+\end{itemize}
+A fourth tab, \textbf{Jump Test (BETA)}, is still experimental and is not covered
+by these guides.
+
+\begin{figure}[h]\centering
+\framedshot{overall_force}{0.97}
+\caption{The dashboard: toolbar on top, the four tabs, and the live
+\emph{Overall Force} chart.}
+\end{figure}
+
+\end{document}
