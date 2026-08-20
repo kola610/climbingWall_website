@@ -1,8 +1,22 @@
-docs/
-climbing_wall_website/src/config/pseudo_calibration_settings.json
-climbing_wall_website/src/config/original_settings.json
-backend/calibration_profiles.json
+.DS_Store
 __pycache__/
 *.pyc
 backend/venv/
-.DS_Store
+
+# Local-only calibration state
+climbing_wall_website/src/config/pseudo_calibration_settings.json
+climbing_wall_website/src/config/original_settings.json
+backend/calibration_profiles.json
+
+# Built from the .tex sources in docs/ — regenerate, don't commit
+docs/GUIDES/
+# Exports of docs/diagrams/system_architecture.drawio; the source is tracked
+docs/diagrams/*.png
+docs/diagrams/*.svg
+
+# Captures are session data, not source. Three reference measurements are kept:
+# a clean hang, a single-board reference, and a known 10 kg load.
+backend/saved_recordings/*
+!backend/saved_recordings/just_hanging_*
+!backend/saved_recordings/reference_left_board_*
+!backend/saved_recordings/alok_topRight_10kg_bottomRight_*
