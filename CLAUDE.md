@@ -22,10 +22,15 @@ cd backend && source venv/bin/activate && python app.py
 cd climbing_wall_website && npm run dev
 
 npm run build     # tsc --noEmit + vite build. This is the only gate — no test runner.
+
+# End-user PDFs — docs/GUIDES/ is gitignored, so a fresh clone has none.
+cd docs && for f in *.tex; do latexmk -pdf -interaction=nonstopmode -outdir=GUIDES "$f"; done
 ```
 
 No test framework is configured. `npm run build` runs TypeScript in `strict` mode with
-`noUnusedLocals`/`noUnusedParameters`, which catches most breakage. Correctness of the
+`noUnusedLocals`/`noUnusedParameters`, which catches most breakage. The recordings window/downsample
+math has `backend/test_recordings.py` (`python test_recordings.py`, run from `backend/`).
+Correctness of the
 physics is guarded by `wallDeclineSelfCheck()` (runs in the browser console on load in
 DEV). If you change non-trivial math, extend that function rather than adding a test
 framework.
